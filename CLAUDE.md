@@ -171,12 +171,38 @@ Based on the completed architecture designs, here's the recommended implementati
 
 ## Testing Strategy
 
-Each component should have comprehensive tests:
-- **Parser**: Grammar test suite from DuckDB
-- **Optimizer**: Rule application and cost model tests
-- **Execution**: Operator correctness and performance benchmarks
-- **Storage**: Format compatibility tests with reference implementations
-- **Integration**: Full TPC-H and TPC-DS query suites
+The project has a comprehensive testing plan documented in:
+- **TESTING_STRATEGY.md** - Overall testing philosophy and approach
+- **TEST_IMPLEMENTATION_GUIDE.md** - Detailed code examples and patterns
+- **COMPATIBILITY_VALIDATION_FRAMEWORK.md** - CGO vs pure-Go behavioral validation
+- **PERFORMANCE_BENCHMARKING_FRAMEWORK.md** - Performance testing and regression detection
+
+### Key Testing Components
+
+1. **SQL Logic Tests** - Adopt DuckDB's SQL Logic Test format for compatibility
+2. **Unit Tests** - Table-driven tests for all components (80% coverage minimum)
+3. **Compatibility Tests** - Side-by-side comparison with CGO DuckDB
+4. **Performance Benchmarks** - TPC-H, TPC-DS, and micro-benchmarks
+5. **Fuzzing** - Go native fuzzing for parser and type system robustness
+
+### Testing Commands
+```bash
+# Run all tests
+go test -v ./...
+
+# Run with coverage
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+
+# Run benchmarks
+go test -bench=. -benchmem ./benchmark/...
+
+# Run SQL logic tests
+go test -v ./test/sqllogictest/...
+
+# Run compatibility tests (requires CGO DuckDB)
+go test -v ./test/compatibility/...
+```
 
 ## License Considerations
 
@@ -187,6 +213,43 @@ Project uses GPL v3.0, which requires:
 
 This licensing choice suggests the project aims to remain open-source and may influence library selection during implementation.
 
+## Purego Integration Strategy
+
+The project will use **purego** (github.com/ebitengine/purego) to enable CGO-free calling of C functions, particularly for interfacing with existing DuckDB C libraries during the transition phase. This allows:
+
+### Key Benefits of Purego
+- **Cross-compilation** without C toolchains (e.g., `GOOS=windows go build`)
+- **Simplified builds** - no CGO complexity or C dependencies
+- **Dynamic library loading** - interface with system libraries at runtime
+- **Production proven** - used by Ebitengine game engine
+
+### Purego Usage Patterns
+```go
+// Load DuckDB C library dynamically
+lib, err := purego.Dlopen("libduckdb.so", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+defer purego.Dlclose(lib)
+
+// Register C functions
+var duckdb_open func(path string, db *uintptr) int
+purego.RegisterLibFunc(&duckdb_open, lib, "duckdb_open")
+
+// Call C functions from pure Go
+var db uintptr
+result := duckdb_open(":memory:", &db)
+```
+
+### Purego Limitations to Consider
+- **Float support** only on 64-bit platforms (amd64, arm64)
+- **Struct alignment** must be manually managed
+- **Callback limitations** on Linux platforms
+- **Maximum 2000 callbacks** per process (never freed)
+
+### Implementation Approach
+1. Use purego for initial compatibility layer with DuckDB C API
+2. Progressively replace C function calls with pure-Go implementations
+3. Maintain purego wrapper for testing against reference implementation
+4. Eventually remove purego dependency once fully implemented in Go
+
 ## Contributing Guidelines
 
 When working on this project:
@@ -196,3 +259,5 @@ When working on this project:
 4. Maintain compatibility with Go's database/sql interface
 5. Write comprehensive tests for all new functionality
 6. Document any deviations from the architecture with justification
+7. Consider purego for any C library integration needs
+8. Ensure all code works without CGO (`CGO_ENABLED=0`)

@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go-version: ['1.21', '1.22']
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: cachix/install-nix-action@v24
+      with:
+        github_access_token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Setup Nix cache
+      uses: cachix/cachix-action@v13
+      with:
+        name: dukdb-go
+        skipPush: ${{ github.event_name == 'pull_request' }}
+    
+    - name: Run tests
+      run: |
+        nix develop --command make test
+    
+    - name: Run linter
+      run: |
+        nix develop --command make lint
+    
+    - name: Run benchmarks
+      run: |
+        nix develop --command make bench
+    
+    - name: Generate coverage
+      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.21'
+      run: |
+        nix develop --command make coverage
+    
+    - name: Upload coverage
+      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.21'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+
+  build-examples:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: cachix/install-nix-action@v24
+      with:
+        github_access_token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build examples
+      run: |
+        nix develop --command go build -o /tmp/basic examples/basic.go
+        nix develop --command go build -o /tmp/advanced examples/advanced.go
+    
+    - name: Test basic example
+      run: |
+        nix develop --command /tmp/basic
+    
+    - name: Test advanced example  
+      run: |
+        nix develop --command /tmp/advanced
+
+  compatibility-test:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Nix
+      uses: cachix/install-nix-action@v24
+      with:
+        github_access_token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Setup Go with CGO
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Install CGO DuckDB driver
+      run: |
+        go get github.com/marcboeker/go-duckdb@latest
+    
+    - name: Run compatibility tests
+      run: |
+        # This would run the compatibility tests if CGO driver is available
+        echo "Compatibility tests would run here"
+        # nix develop --command go test -v -tags=cgo ./test/compatibility/...

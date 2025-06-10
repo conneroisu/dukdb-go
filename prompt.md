@@ -1,7 +1,178 @@
-The goal of this repository is rather simple: 
-Map out the ways used to implement SQL databases in Go comparing CGO-based drivers to pure-Go drivers and use that to implement duckdb in pure go.
+# DuckDB Pure-Go Implementation: CGO-to-Purego Conversion Task
 
-Essentially, to provide a comprehensive list of Go SQL database drivers by implementation type (pure-Go, CGO-based), to provide a summary of the key insights and recommendations, and 
+## Objective
+
+Convert the existing CGO-based DuckDB Go driver (github.com/marcboeker/go-duckdb) to a pure-Go implementation using purego for initial C library interfacing, then progressively replace C dependencies with native Go code.
+
+## Current State
+
+- **Existing**: CGO-based DuckDB driver requiring C toolchain
+- **Goal**: Pure-Go implementation with no CGO dependencies
+- **Strategy**: Use purego as transitional FFI layer while implementing native Go components
+
+## Implementation Approach
+
+### Phase 1: Purego Wrapper (Weeks 1-2)
+Create a purego-based wrapper that maintains API compatibility with the existing CGO driver:
+
+1. **Setup purego interface**
+   ```go
+   // internal/purego/duckdb.go
+   package purego
+   
+   import "github.com/ebitengine/purego"
+   
+   type DuckDB struct {
+       lib    uintptr
+       handle uintptr
+   }
+   
+   func Open(path string) (*DuckDB, error) {
+       lib, err := purego.Dlopen(getDuckDBLibrary(), purego.RTLD_NOW)
+       // Register functions and initialize
+   }
+   ```
+
+2. **Map essential C functions**
+   - duckdb_open/close
+   - duckdb_connect/disconnect  
+   - duckdb_query/prepare
+   - Result fetching functions
+   - Type conversion functions
+
+3. **Implement database/sql driver interface**
+   - Use purego wrapper internally
+   - Maintain exact same API as CGO version
+   - Enable compatibility testing
+
+### Phase 2: Core Go Components (Weeks 3-6)
+Begin replacing C dependencies with Go implementations:
+
+1. **Type System** (Week 3)
+   - Implement DuckDB types in pure Go (HUGEINT, LIST, STRUCT)
+   - Create type conversion layer
+   - Remove C type dependencies
+
+2. **SQL Parser** (Week 4)
+   - Generate Goyacc parser for DuckDB SQL
+   - Parse to native Go AST
+   - Remove C parser dependency
+
+3. **Storage Engine** (Week 5-6)
+   - Implement columnar storage in Go
+   - Add Parquet support via parquet-go
+   - Create in-memory storage backend
+
+### Phase 3: Query Execution (Weeks 7-10)
+Replace C execution engine:
+
+1. **Volcano Iterator Model**
+   - Implement basic operators (Scan, Filter, Join)
+   - Create execution framework
+   - Add parallel execution support
+
+2. **Aggregation Framework**
+   - Implement common aggregates
+   - Add GROUP BY support
+   - Window function framework
+
+3. **Optimization Layer**
+   - Rule-based optimizer
+   - Predicate pushdown
+   - Join reordering
+
+### Phase 4: Advanced Features (Weeks 11-12)
+Complete remaining functionality:
+
+1. **Complex Types**
+   - Full LIST/STRUCT operations
+   - MAP type support
+   - Nested type handling
+
+2. **Analytics Functions**
+   - Window functions
+   - Statistical aggregates
+   - Time series operations
+
+## Key Files to Analyze
+
+From CGO driver (github.com/marcboeker/go-duckdb):
+- `duckdb.go` - Main driver interface
+- `connector.go` - Connection management
+- `statement.go` - Query execution
+- `rows.go` - Result set handling
+- `types.go` - Type conversions
+
+## Testing Strategy
+
+1. **Compatibility Tests**
+   - Run identical queries on both implementations
+   - Compare results byte-for-byte
+   - Benchmark performance differences
+
+2. **SQL Logic Tests**
+   - Port DuckDB's test suite
+   - Use .test file format
+   - Ensure behavioral compatibility
+
+3. **Performance Benchmarks**
+   - TPC-H queries
+   - Memory usage profiling
+   - CGO vs purego vs pure-Go comparison
+
+## Critical Considerations
+
+### Purego Limitations
+- Manual struct alignment required
+- Float support only on 64-bit platforms
+- Callback limitations on Linux
+- Maximum 2000 callbacks per process
+
+### Memory Management
+- Track C allocations when using purego
+- Implement proper cleanup/defer patterns
+- Consider Go GC pressure with large datasets
+
+### Platform Support
+- Test on Linux, macOS, Windows
+- Verify cross-compilation works
+- Handle missing shared libraries gracefully
+
+## Success Criteria
+
+1. **Functional**: Pass 95% of DuckDB SQL logic tests
+2. **Compatible**: database/sql interface works identically to CGO version
+3. **Performance**: Within 2x of CGO version for common queries
+4. **Deployment**: Single binary with no C dependencies
+5. **Cross-platform**: Builds for all major OS/arch combinations
+
+## Getting Started
+
+1. Fork the repository
+2. Set up purego wrapper in `internal/purego/`
+3. Create compatibility test harness
+4. Begin incremental replacement of C functions
+5. Track progress in implementation checklist
+
+## Resources
+
+- DuckDB C API: https://duckdb.org/docs/api/c/overview
+- Purego docs: https://github.com/ebitengine/purego
+- CGO driver: https://github.com/marcboeker/go-duckdb
+- SQL Logic Tests: https://www.sqlite.org/sqllogictest/
+
+## Questions to Address
+
+1. Which DuckDB version to target initially?
+2. How to handle DuckDB extensions?
+3. Minimum Go version requirement?
+4. License compatibility (GPL v3.0 implications)?
+
+Begin by creating the purego wrapper and establishing the test harness for compatibility validation.
+
+---
+
+## Original Research: Go SQL Database Driver Implementation Analysis 
 
 # Comprehensive Go SQL Database Drivers by Implementation Type
 
