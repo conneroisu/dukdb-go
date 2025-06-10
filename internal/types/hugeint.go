@@ -18,12 +18,12 @@ func NewHugeint(s string) (*Hugeint, error) {
 	if !ok {
 		return nil, fmt.Errorf("invalid hugeint value: %s", s)
 	}
-	
+
 	// Check if it fits in 128 bits
 	if value.BitLen() > 128 {
 		return nil, fmt.Errorf("value too large for HUGEINT (128-bit): %s", s)
 	}
-	
+
 	return &Hugeint{value: value}, nil
 }
 
@@ -84,7 +84,7 @@ func (h *Hugeint) Scan(value interface{}) error {
 		h.value = nil
 		return nil
 	}
-	
+
 	switch v := value.(type) {
 	case string:
 		hugeint, err := NewHugeint(v)

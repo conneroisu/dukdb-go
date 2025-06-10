@@ -10,14 +10,14 @@
 //	    "database/sql"
 //	    _ "github.com/connerohnesorge/dukdb-go"
 //	)
-//	
+//
 //	func main() {
 //	    db, err := sql.Open("duckdb", "mydb.db")
 //	    if err != nil {
 //	        log.Fatal(err)
 //	    }
 //	    defer db.Close()
-//	    
+//
 //	    // Use db as normal...
 //	}
 package duckdb

@@ -111,7 +111,7 @@ func TestListType(t *testing.T) {
 			t.Fatalf("Failed to scan list: %v", err)
 		}
 		t.Logf("ID: %d, Tags: %s, Numbers: %s", id, tags, numbers)
-		
+
 		// Verify we can parse as JSON
 		var tagList []string
 		if tags != "[]" && tags != "" {
@@ -119,7 +119,7 @@ func TestListType(t *testing.T) {
 				t.Errorf("Failed to parse tags as JSON: %v", err)
 			}
 		}
-		
+
 		var numList []int
 		if numbers != "[]" && numbers != "" {
 			if err := json.Unmarshal([]byte(numbers), &numList); err != nil {
@@ -172,10 +172,10 @@ func TestStructType(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to scan struct: %v", err)
 		}
-		
+
 		if person.Valid {
 			t.Logf("ID: %d, Person: %s", id, person.String)
-			
+
 			// Verify we can parse as JSON
 			var p map[string]interface{}
 			if err := json.Unmarshal([]byte(person.String), &p); err != nil {
@@ -231,7 +231,7 @@ func TestMapType(t *testing.T) {
 			t.Fatalf("Failed to scan map: %v", err)
 		}
 		t.Logf("ID: %d, Properties: %s", id, properties)
-		
+
 		// Verify we can parse as JSON
 		if properties != "{}" && properties != "" {
 			var m map[string]interface{}
@@ -284,7 +284,7 @@ func TestNestedComplexTypes(t *testing.T) {
 	}
 
 	t.Logf("Nested data: %s", data)
-	
+
 	// Verify structure
 	var parsed map[string]interface{}
 	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
@@ -342,7 +342,7 @@ func TestComplexTypeQueries(t *testing.T) {
 			t.Logf("Electronics product: %s", name)
 			count++
 		}
-		
+
 		if count != 2 {
 			t.Errorf("Expected 2 electronics products, got %d", count)
 		}

@@ -34,12 +34,12 @@ func (s *Struct) Set(name string, value interface{}) {
 	if s.fields == nil {
 		s.fields = make(map[string]interface{})
 	}
-	
+
 	// Track field order
 	if _, exists := s.fields[name]; !exists {
 		s.order = append(s.order, name)
 	}
-	
+
 	s.fields[name] = value
 }
 
@@ -78,7 +78,7 @@ func (s *Struct) String() string {
 	if s == nil || s.fields == nil {
 		return "{}"
 	}
-	
+
 	// Build string with ordered fields
 	result := "{"
 	for i, name := range s.order {
@@ -107,7 +107,7 @@ func (s *Struct) Scan(value interface{}) error {
 		s.order = nil
 		return nil
 	}
-	
+
 	switch v := value.(type) {
 	case []byte:
 		// Try to unmarshal as JSON

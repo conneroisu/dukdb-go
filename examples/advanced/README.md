@@ -33,6 +33,7 @@ go test -bench=. -benchmem
 ## What You'll Learn
 
 ### 1. Date and Time Handling
+
 ```sql
 CREATE TABLE events (
     event_date DATE,
@@ -40,22 +41,26 @@ CREATE TABLE events (
     event_timestamp TIMESTAMP
 );
 ```
+
 - Working with different temporal types
 - Date arithmetic and functions
 - Timezone handling
 
 ### 2. Binary Data (BLOBs)
+
 ```sql
 CREATE TABLE files (
     filename VARCHAR,
     data BLOB
 );
 ```
+
 - Storing binary files in the database
 - Retrieving and manipulating binary data
 - Handling null bytes and special characters
 
 ### 3. Analytical Queries
+
 ```sql
 SELECT 
     category,
@@ -69,6 +74,7 @@ GROUP BY category;
 ```
 
 ### 4. Window Functions
+
 ```sql
 SELECT 
     name,
@@ -81,12 +87,15 @@ FROM employees;
 ## Key Concepts
 
 ### Analytical Processing
+
 DuckDB excels at analytical workloads:
+
 - **Columnar Storage**: Efficient for analytical queries
 - **Vectorized Execution**: Fast aggregations and transformations
 - **Advanced SQL**: Complete SQL standard support
 
 ### Data Types
+
 ```go
 // Go types mapping to DuckDB types
 var date time.Time     // DATE
@@ -96,11 +105,13 @@ var decimal float64    // DECIMAL
 ```
 
 ### Performance Optimization
+
 - Use appropriate data types for your use case
 - Leverage DuckDB's analytical functions
 - Consider partitioning for large datasets
 
 ### Error Handling
+
 ```go
 // Always handle potential errors
 rows, err := db.Query(complexQuery)
@@ -113,6 +124,7 @@ defer rows.Close()
 ## Use Cases
 
 This example is perfect for:
+
 - **Business Intelligence**: Reporting and analytics
 - **Data Warehousing**: ETL operations and data processing
 - **Financial Applications**: Precise decimal calculations

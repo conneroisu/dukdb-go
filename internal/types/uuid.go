@@ -14,18 +14,18 @@ type UUID [16]byte
 func NewUUID(s string) (*UUID, error) {
 	// Remove hyphens
 	s = strings.ReplaceAll(s, "-", "")
-	
+
 	// Must be 32 hex characters
 	if len(s) != 32 {
 		return nil, fmt.Errorf("invalid UUID length: %d", len(s))
 	}
-	
+
 	// Decode hex
 	bytes, err := hex.DecodeString(s)
 	if err != nil {
 		return nil, fmt.Errorf("invalid UUID hex: %w", err)
 	}
-	
+
 	var uuid UUID
 	copy(uuid[:], bytes)
 	return &uuid, nil
@@ -36,7 +36,7 @@ func NewUUIDFromBytes(b []byte) (*UUID, error) {
 	if len(b) != 16 {
 		return nil, fmt.Errorf("invalid UUID bytes length: %d", len(b))
 	}
-	
+
 	var uuid UUID
 	copy(uuid[:], b)
 	return &uuid, nil
@@ -82,7 +82,7 @@ func (u *UUID) Scan(value interface{}) error {
 		*u = UUID{}
 		return nil
 	}
-	
+
 	switch v := value.(type) {
 	case string:
 		uuid, err := NewUUID(v)
@@ -123,7 +123,7 @@ func (u *UUID) UnmarshalJSON(data []byte) error {
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
 		s = s[1 : len(s)-1]
 	}
-	
+
 	uuid, err := NewUUID(s)
 	if err != nil {
 		return err

@@ -7,7 +7,7 @@ This guide helps you migrate from the CGO-based DuckDB driver (`github.com/marcb
 The **dukdb-go** driver provides a drop-in replacement for the CGO driver while offering additional benefits:
 
 - **Zero CGO Dependencies** - Easier deployment and cross-compilation
-- **Improved Performance** - Optimized connection pooling and statement caching  
+- **Improved Performance** - Optimized connection pooling and statement caching
 - **Better Debugging** - Pure Go stack traces
 - **Static Binaries** - No runtime library dependencies
 
@@ -489,16 +489,16 @@ go test ./...
 After successful migration:
 
 1. **Remove CGO Build Tags** - Clean up any `// +build cgo` constraints
-2. **Update CI/CD** - Simplify build pipelines without CGO
-3. **Leverage Cross-Compilation** - Build for multiple platforms easily
-4. **Optimize Performance** - Use new performance features
-5. **Monitor Metrics** - Track the improved performance
+1. **Update CI/CD** - Simplify build pipelines without CGO
+1. **Leverage Cross-Compilation** - Build for multiple platforms easily
+1. **Optimize Performance** - Use new performance features
+1. **Monitor Metrics** - Track the improved performance
 
 ## Getting Help
 
 If you encounter issues during migration:
 
 1. Check the [Troubleshooting Guide](/guides/troubleshooting/)
-2. Review the [Performance Guide](/guides/performance/) for optimization tips
-3. Consult the [API Reference](/reference/api/) for detailed documentation
-4. Report issues on the [GitHub repository](https://github.com/connerohnesorge/dukdb-go/issues)
+1. Review the [Performance Guide](/guides/performance/) for optimization tips
+1. Consult the [API Reference](/reference/api/) for detailed documentation
+1. Report issues on the [GitHub repository](https://github.com/connerohnesorge/dukdb-go/issues)

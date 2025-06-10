@@ -5,11 +5,12 @@ This framework ensures the pure-Go DuckDB implementation maintains behavioral co
 ## Overview
 
 The compatibility validation framework consists of:
+
 1. **Behavioral Test Suite**: Comparing query results between implementations
-2. **API Compatibility Layer**: Ensuring database/sql interface compliance
-3. **Performance Comparison**: Tracking relative performance metrics
-4. **Feature Parity Matrix**: Documenting supported vs unsupported features
-5. **Migration Testing**: Validating data migration between implementations
+1. **API Compatibility Layer**: Ensuring database/sql interface compliance
+1. **Performance Comparison**: Tracking relative performance metrics
+1. **Feature Parity Matrix**: Documenting supported vs unsupported features
+1. **Migration Testing**: Validating data migration between implementations
 
 ## Behavioral Test Suite
 

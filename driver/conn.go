@@ -26,7 +26,7 @@ func (c *Conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &Stmt{
 		conn:   c,
 		duckdb: c.duckdb,
@@ -53,7 +53,7 @@ func (c *Conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	if err := c.duckdb.Execute(c.conn, "BEGIN TRANSACTION"); err != nil {
 		return nil, err
 	}
-	
+
 	return &Tx{conn: c}, nil
 }
 
@@ -65,7 +65,7 @@ func (c *Conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return nil, ctx.Err()
 	default:
 	}
-	
+
 	if len(args) > 0 {
 		// Prepare and execute with parameters
 		stmt, err := c.PrepareContext(ctx, query)
@@ -73,17 +73,17 @@ func (c *Conn) ExecContext(ctx context.Context, query string, args []driver.Name
 			return nil, err
 		}
 		defer stmt.Close()
-		
+
 		return stmt.(*Stmt).ExecContext(ctx, args)
 	}
-	
+
 	// Direct execution with context support
 	done := make(chan error, 1)
-	
+
 	go func() {
 		done <- c.duckdb.Execute(c.conn, query)
 	}()
-	
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -103,7 +103,7 @@ func (c *Conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 		return nil, ctx.Err()
 	default:
 	}
-	
+
 	if len(args) > 0 {
 		// Prepare and execute with parameters
 		stmt, err := c.PrepareContext(ctx, query)
@@ -111,20 +111,20 @@ func (c *Conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 			return nil, err
 		}
 		// Don't close stmt here - it will be closed when rows are closed
-		
+
 		return stmt.(*Stmt).QueryContext(ctx, args)
 	}
-	
+
 	// Direct query execution with context support
 	done := make(chan struct{})
 	var result *purego.QueryResult
 	var err error
-	
+
 	go func() {
 		defer close(done)
 		result, err = c.duckdb.Query(c.conn, query)
 	}()
-	
+
 	select {
 	case <-ctx.Done():
 		// Context cancelled - we can't easily cancel the C operation
@@ -134,7 +134,7 @@ func (c *Conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 		if err != nil {
 			return nil, err
 		}
-		
+
 		return &Rows{
 			duckdb: c.duckdb,
 			result: result,

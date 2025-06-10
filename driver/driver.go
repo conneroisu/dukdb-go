@@ -27,28 +27,28 @@ func (d *Driver) Open(name string) (driver.Conn, error) {
 	d.initOnce.Do(func() {
 		d.duckdb, initErr = purego.New()
 	})
-	
+
 	if initErr != nil {
 		return nil, fmt.Errorf("failed to initialize DuckDB: %w", initErr)
 	}
-	
+
 	// Open database
 	db, err := d.duckdb.Open(name)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Create connection
 	conn, err := d.duckdb.Connect(db)
 	if err != nil {
 		d.duckdb.CloseDatabase(db)
 		return nil, err
 	}
-	
+
 	return &Conn{
-		duckdb:     d.duckdb,
-		db:         db,
-		conn:       conn,
+		duckdb: d.duckdb,
+		db:     db,
+		conn:   conn,
 	}, nil
 }
 
@@ -59,11 +59,11 @@ func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
 	d.initOnce.Do(func() {
 		d.duckdb, initErr = purego.New()
 	})
-	
+
 	if initErr != nil {
 		return nil, fmt.Errorf("failed to initialize DuckDB: %w", initErr)
 	}
-	
+
 	return &Connector{
 		driver: d,
 		name:   name,

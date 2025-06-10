@@ -9,16 +9,18 @@ This document outlines comprehensive query optimization strategies for DukDB-Go,
 ### 1.1 Core Architecture Insights
 
 DuckDB's optimizer follows a multi-stage pipeline:
+
 1. **Parser** → SQL string to parse tree
-2. **Binder** → Resolve tables/columns using catalog
-3. **Logical Planner** → Create LogicalOperator tree
-4. **Optimizer** → Apply optimization rules
-5. **Physical Planner** → Convert to PhysicalOperator tree
-6. **Execution** → Push-based vectorized execution
+1. **Binder** → Resolve tables/columns using catalog
+1. **Logical Planner** → Create LogicalOperator tree
+1. **Optimizer** → Apply optimization rules
+1. **Physical Planner** → Convert to PhysicalOperator tree
+1. **Execution** → Push-based vectorized execution
 
 ### 1.2 Key Optimization Rules
 
 **Rule-Based Optimizations:**
+
 - Filter Pushdown: Move filters closer to data sources
 - Common Sub-Expression Elimination: Extract duplicate computations
 - IN Clause Rewriter: Convert large IN clauses to joins
@@ -26,6 +28,7 @@ DuckDB's optimizer follows a multi-stage pipeline:
 - TopN Optimization: Replace sort+limit with efficient TopN
 
 **Cost-Based Optimizations:**
+
 - Join Order Optimization: Uses DPccp algorithm
 - Statistics-driven cardinality estimation
 - Adaptive query processing based on runtime statistics
@@ -33,6 +36,7 @@ DuckDB's optimizer follows a multi-stage pipeline:
 ### 1.3 Performance Impact
 
 DuckDB's optimizer provides:
+
 - 10x+ performance improvements in typical cases
 - Automatic adaptation to changing data characteristics
 - Elimination of manual query tuning requirements
@@ -42,16 +46,19 @@ DuckDB's optimizer provides:
 ### 2.1 Runtime Characteristics
 
 **Goroutine Coordination Costs:**
+
 - Context switching overhead between goroutines
 - Channel communication latency
 - Synchronization primitives impact
 
 **Memory Allocation Patterns:**
+
 - Stack vs heap allocation decisions
 - Slice/map growth patterns
 - Escape analysis implications
 
 **GC Pressure Factors:**
+
 - Allocation frequency and object lifetime
 - Stop-the-world pause minimization
 - Memory layout for cache efficiency
@@ -59,11 +66,13 @@ DuckDB's optimizer provides:
 ### 2.2 Optimization Opportunities
 
 **Concurrent Query Processing:**
+
 - Parallel operator execution via goroutines
 - Pipeline parallelism between operators
 - Intra-operator parallelism for large datasets
 
 **Memory Management:**
+
 - Object pooling for frequently allocated structures
 - Pre-allocation of known-size collections
 - Columnar data layout for cache efficiency
@@ -73,6 +82,7 @@ DuckDB's optimizer provides:
 ### 3.1 Approach 1: Rule-Based with Heuristics
 
 **Architecture:**
+
 ```go
 type RuleBasedOptimizer struct {
     rules []OptimizationRule
@@ -87,18 +97,21 @@ type OptimizationRule interface {
 ```
 
 **Core Rules:**
+
 1. **FilterPushdownRule**: Push predicates through joins and projections
-2. **ProjectionEliminationRule**: Remove unused columns early
-3. **JoinReorderingRule**: Apply join associativity/commutativity
-4. **SubqueryDecorrelationRule**: Convert correlated to uncorrelated subqueries
-5. **WindowFunctionOptimizationRule**: Optimize window function placement
+1. **ProjectionEliminationRule**: Remove unused columns early
+1. **JoinReorderingRule**: Apply join associativity/commutativity
+1. **SubqueryDecorrelationRule**: Convert correlated to uncorrelated subqueries
+1. **WindowFunctionOptimizationRule**: Optimize window function placement
 
 **Implementation Strategy:**
+
 - Apply rules in priority order until fixed point
 - Track rule application to prevent infinite loops
 - Use pattern matching for efficient rule selection
 
 **Go-Specific Enhancements:**
+
 - Goroutine-aware cost estimation for parallel operations
 - Memory allocation pattern consideration in rule selection
 - GC-friendly data structure transformations
@@ -106,6 +119,7 @@ type OptimizationRule interface {
 ### 3.2 Approach 2: Cost-Based with Statistics Collection
 
 **Architecture:**
+
 ```go
 type CostBasedOptimizer struct {
     statisticsManager *StatisticsManager
@@ -129,19 +143,22 @@ type ColumnStatistics struct {
 ```
 
 **Statistics Collection:**
+
 - **Table-level**: Row count, size, modification frequency
 - **Column-level**: Cardinality, null percentage, value distribution
 - **Index-level**: Selectivity, clustering factor
 - **Join-level**: Correlation statistics, foreign key relationships
 
 **Cost Model Components:**
+
 1. **CPU Cost**: Based on operation complexity and data volume
-2. **I/O Cost**: Disk/memory access patterns
-3. **Memory Cost**: Allocation and GC pressure
-4. **Network Cost**: For distributed operations
-5. **Goroutine Cost**: Context switching and synchronization overhead
+1. **I/O Cost**: Disk/memory access patterns
+1. **Memory Cost**: Allocation and GC pressure
+1. **Network Cost**: For distributed operations
+1. **Goroutine Cost**: Context switching and synchronization overhead
 
 **Cardinality Estimation:**
+
 - Histogram-based estimation for range predicates
 - Bloom filters for existence checks
 - Hyperloglog for distinct count estimation
@@ -150,6 +167,7 @@ type ColumnStatistics struct {
 ### 3.3 Approach 3: Hybrid Adaptive Optimization
 
 **Architecture:**
+
 ```go
 type AdaptiveOptimizer struct {
     ruleOptimizer *RuleBasedOptimizer
@@ -174,13 +192,15 @@ type PlanExecution struct {
 ```
 
 **Adaptive Strategy:**
+
 1. **Initial Optimization**: Apply rule-based optimization for fast planning
-2. **Cost Refinement**: Use statistics for expensive query plans
-3. **Runtime Feedback**: Collect actual vs estimated metrics
-4. **Plan Adaptation**: Adjust future optimizations based on feedback
-5. **Dynamic Re-optimization**: Re-plan long-running queries with updated statistics
+1. **Cost Refinement**: Use statistics for expensive query plans
+1. **Runtime Feedback**: Collect actual vs estimated metrics
+1. **Plan Adaptation**: Adjust future optimizations based on feedback
+1. **Dynamic Re-optimization**: Re-plan long-running queries with updated statistics
 
 **Machine Learning Integration:**
+
 - Plan cost prediction models
 - Cardinality estimation neural networks
 - Resource usage forecasting
@@ -191,6 +211,7 @@ type PlanExecution struct {
 ### 4.1 Filter Pushdown and Predicate Optimization
 
 **FilterPushdownRule Implementation:**
+
 ```go
 type FilterPushdownRule struct{}
 
@@ -211,6 +232,7 @@ func (r *FilterPushdownRule) pushFiltersDown(node *LogicalPlan, filters []*Filte
 ```
 
 **Optimizations:**
+
 - Push filters to both sides of equi-joins
 - Duplicate filters for correlated columns
 - Convert filters to index lookups when possible
@@ -219,6 +241,7 @@ func (r *FilterPushdownRule) pushFiltersDown(node *LogicalPlan, filters []*Filte
 ### 4.2 Join Reordering and Selection
 
 **JoinOrderOptimizer Implementation:**
+
 ```go
 type JoinOrderOptimizer struct {
     statisticsManager *StatisticsManager
@@ -250,14 +273,16 @@ func (opt *JoinOrderOptimizer) dpOptimize(relations []*JoinNode) *JoinNode {
 ```
 
 **Join Selection Strategies:**
+
 1. **Hash Join**: For equi-joins with good hash distribution
-2. **Nested Loop Join**: For small outer relations
-3. **Sort-Merge Join**: For sorted inputs or range predicates
-4. **Index Nested Loop**: When inner relation has suitable index
+1. **Nested Loop Join**: For small outer relations
+1. **Sort-Merge Join**: For sorted inputs or range predicates
+1. **Index Nested Loop**: When inner relation has suitable index
 
 ### 4.3 Aggregation Pushdown and Optimization
 
 **AggregationPushdownRule:**
+
 ```go
 type AggregationPushdownRule struct{}
 
@@ -280,6 +305,7 @@ func (r *AggregationPushdownRule) pushAggregation(agg *LogicalAggregation) (*Log
 ```
 
 **Optimization Techniques:**
+
 - Push COUNT/SUM through UNION operations
 - Pre-aggregate before expensive joins
 - Use GROUP BY elimination for functional dependencies
@@ -288,6 +314,7 @@ func (r *AggregationPushdownRule) pushAggregation(agg *LogicalAggregation) (*Log
 ### 4.4 Projection Elimination
 
 **ProjectionEliminationRule:**
+
 ```go
 type ProjectionEliminationRule struct{}
 
@@ -305,6 +332,7 @@ func (r *ProjectionEliminationRule) computeRequiredColumns(plan *LogicalPlan) *C
 ### 4.5 Subquery Optimization and Decorrelation
 
 **SubqueryDecorrelationRule:**
+
 ```go
 type SubqueryDecorrelationRule struct{}
 
@@ -324,6 +352,7 @@ func (r *SubqueryDecorrelationRule) decorrelateSubqueries(plan *LogicalPlan) (*L
 ```
 
 **Decorrelation Techniques:**
+
 - Convert EXISTS to SEMI-JOIN
 - Convert NOT EXISTS to ANTI-JOIN
 - Transform scalar subqueries to LEFT OUTER JOIN
@@ -332,6 +361,7 @@ func (r *SubqueryDecorrelationRule) decorrelateSubqueries(plan *LogicalPlan) (*L
 ### 4.6 Window Function Optimization
 
 **WindowFunctionOptimizationRule:**
+
 ```go
 type WindowFunctionOptimizationRule struct{}
 
@@ -370,6 +400,7 @@ type StatisticsCollector struct {
 ### 5.2 Column Statistics Collection
 
 **Basic Statistics:**
+
 ```go
 type ColumnStatistics struct {
     NullCount int64
@@ -391,6 +422,7 @@ func (cs *ColumnStatistics) UpdateWithSample(values []interface{}) {
 ### 5.3 Histogram Generation and Maintenance
 
 **Equi-Width and Equi-Depth Histograms:**
+
 ```go
 type Histogram struct {
     Type HistogramType
@@ -437,6 +469,7 @@ func NewEquiDepthHistogram(values []interface{}, bucketCount int) *Histogram {
 ### 5.4 Join Selectivity Estimation
 
 **Correlation Statistics:**
+
 ```go
 type JoinStatistics struct {
     JoinColumns []string
@@ -467,6 +500,7 @@ func EstimateJoinSelectivity(leftStats, rightStats *TableStatistics, joinKeys []
 ### 5.5 Cost Model for Go-Specific Operations
 
 **Resource Cost Modeling:**
+
 ```go
 type CostModel struct {
     CPUCostPerTuple float64
@@ -510,6 +544,7 @@ func (cm *CostModel) EstimateOperatorCost(op *PhysicalOperator, inputCard int64)
 ### 6.1 Goroutine Coordination Optimization
 
 **Worker Pool Pattern for Query Execution:**
+
 ```go
 type WorkerPool struct {
     workers []chan WorkItem
@@ -561,6 +596,7 @@ func (qe *QueryExecutor) estimateOptimalConcurrency(op *PhysicalOperator) int {
 ### 6.2 Memory Allocation Pattern Optimization
 
 **Pre-allocation Strategy:**
+
 ```go
 type DataChunk struct {
     columns []Column
@@ -600,6 +636,7 @@ func NewColumn(capacity int) Column {
 ```
 
 **Object Pooling for Frequent Allocations:**
+
 ```go
 var (
     dataChunkPool = sync.Pool{
@@ -631,6 +668,7 @@ func PutDataChunk(chunk *DataChunk) {
 ### 6.3 GC Pressure Minimization
 
 **Stack Allocation Optimization:**
+
 ```go
 // Prefer stack allocation for small, short-lived objects
 func (op *HashJoinOperator) processRow(row *Row) bool {
@@ -651,6 +689,7 @@ func (op *FilterOperator) evaluatePredicate(row *Row) bool {
 ```
 
 **Batch Processing to Reduce GC Frequency:**
+
 ```go
 type BatchProcessor struct {
     batchSize int
@@ -683,6 +722,7 @@ func (bp *BatchProcessor) flushBatch() {
 ### 7.1 SQL Parser Integration
 
 **Parser Output to Optimizer Input:**
+
 ```go
 type QueryOptimizer interface {
     Optimize(statement *SQLStatement, catalog *Catalog) (*PhysicalPlan, error)
@@ -728,6 +768,7 @@ func (opt *OptimizerImpl) Optimize(stmt *SQLStatement, catalog *Catalog) (*Physi
 ### 7.2 Physical Execution Engine Integration
 
 **Operator Interface:**
+
 ```go
 type PhysicalOperator interface {
     Open() error
@@ -745,6 +786,7 @@ type PipelineOperator interface {
 ```
 
 **Pipeline Execution:**
+
 ```go
 type PipelineExecutor struct {
     operators []PhysicalOperator
@@ -772,6 +814,7 @@ func (pe *PipelineExecutor) Execute(ctx context.Context) <-chan *DataChunk {
 ### 7.3 Statistics Storage and Updates
 
 **Statistics Persistence:**
+
 ```go
 type StatisticsPersistence interface {
     SaveStatistics(tableName string, stats *TableStatistics) error
@@ -808,6 +851,7 @@ func (fbs *FileBasedStatistics) SaveStatistics(tableName string, stats *TableSta
 ```
 
 **Automatic Statistics Updates:**
+
 ```go
 type StatisticsUpdater struct {
     persistence StatisticsPersistence
@@ -853,6 +897,7 @@ func (su *StatisticsUpdater) Start(ctx context.Context) {
 ### 8.1 Query Plan Metrics
 
 **Execution Metrics Collection:**
+
 ```go
 type ExecutionMetrics struct {
     PlanningTime time.Duration
@@ -884,6 +929,7 @@ func (mc *MetricsCollector) RecordExecution(queryID string, metrics *ExecutionMe
 ### 8.2 Adaptive Optimization Feedback
 
 **Plan Performance Tracking:**
+
 ```go
 type PlanPerformanceTracker struct {
     planMetrics map[string]*PlanMetrics
@@ -920,36 +966,42 @@ func (ppt *PlanPerformanceTracker) UpdatePlanMetrics(feedback *PlanFeedback) {
 ## 9. Implementation Roadmap
 
 ### Phase 1: Core Infrastructure (Months 1-2)
+
 - Implement basic logical and physical operator interfaces
 - Create rule-based optimizer framework
 - Develop statistics collection foundation
 - Build query plan representation structures
 
 ### Phase 2: Rule-Based Optimization (Months 3-4)
+
 - Implement core optimization rules (filter pushdown, projection elimination)
 - Add join reordering with simple heuristics
 - Create subquery decorrelation framework
 - Implement basic cost estimation
 
 ### Phase 3: Cost-Based Optimization (Months 5-6)
+
 - Build comprehensive statistics collection system
 - Implement histogram-based cardinality estimation
 - Create Go-specific cost model
 - Add dynamic programming join optimization
 
 ### Phase 4: Go-Specific Optimizations (Months 7-8)
+
 - Implement goroutine-aware query execution
 - Add memory allocation optimization patterns
 - Create GC pressure minimization strategies
 - Build object pooling and reuse mechanisms
 
 ### Phase 5: Adaptive Optimization (Months 9-10)
+
 - Implement execution feedback collection
 - Add plan performance tracking
 - Create adaptive optimization rules
 - Build machine learning integration framework
 
 ### Phase 6: Integration and Testing (Months 11-12)
+
 - Integrate with SQL parser and execution engine
 - Comprehensive performance testing and benchmarking
 - Documentation and optimization tuning guides
@@ -958,6 +1010,7 @@ func (ppt *PlanPerformanceTracker) UpdatePlanMetrics(feedback *PlanFeedback) {
 ## 10. Success Metrics
 
 ### Performance Targets
+
 - **Query Planning Time**: < 10ms for simple queries, < 100ms for complex queries
 - **Optimization Effectiveness**: 5x+ performance improvement over unoptimized plans
 - **Memory Efficiency**: < 2x memory overhead compared to minimal execution
@@ -965,6 +1018,7 @@ func (ppt *PlanPerformanceTracker) UpdatePlanMetrics(feedback *PlanFeedback) {
 - **Scalability**: Linear performance scaling with available CPU cores
 
 ### Quality Metrics
+
 - **Plan Quality**: 90%+ of generated plans within 20% of optimal cost
 - **Cardinality Accuracy**: 80%+ of cardinality estimates within 2x of actual
 - **Adaptation Speed**: Significant plan improvements within 10 executions

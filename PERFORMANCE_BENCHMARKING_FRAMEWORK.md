@@ -5,17 +5,19 @@ This framework provides comprehensive performance testing and analysis for the p
 ## Overview
 
 The performance benchmarking framework consists of:
+
 1. **Micro-benchmarks**: Testing individual components and operations
-2. **Query Benchmarks**: Standard workloads (TPC-H, TPC-DS)
-3. **Real-world Scenarios**: Common analytical patterns
-4. **Memory Profiling**: Tracking allocations and GC pressure
-5. **Regression Detection**: Automated performance regression alerts
+1. **Query Benchmarks**: Standard workloads (TPC-H, TPC-DS)
+1. **Real-world Scenarios**: Common analytical patterns
+1. **Memory Profiling**: Tracking allocations and GC pressure
+1. **Regression Detection**: Automated performance regression alerts
 
 ## Benchmark Categories
 
 ### 1. Component Micro-benchmarks
 
 #### Parser Performance
+
 ```go
 // benchmark/micro/parser_bench_test.go
 package micro
@@ -101,6 +103,7 @@ func BenchmarkParserScaling(b *testing.B) {
 ```
 
 #### Type System Performance
+
 ```go
 // benchmark/micro/types_bench_test.go
 package micro
@@ -196,6 +199,7 @@ func BenchmarkTypeConversion(b *testing.B) {
 ```
 
 #### Storage Engine Performance
+
 ```go
 // benchmark/micro/storage_bench_test.go
 package micro
@@ -304,6 +308,7 @@ func BenchmarkCompression(b *testing.B) {
 ### 2. Query Execution Benchmarks
 
 #### Execution Operators
+
 ```go
 // benchmark/micro/operators_bench_test.go
 package micro
@@ -799,6 +804,7 @@ func TestMemoryLeaks(t *testing.T) {
 ## Performance Analysis Tools
 
 ### Benchmark Comparison Tool
+
 ```go
 // scripts/benchmark_compare.go
 package main
@@ -938,6 +944,7 @@ func generateComparisonReport(cgo, pure []BenchmarkResult) string {
 ```
 
 ### Performance Regression Detection
+
 ```go
 // scripts/perf_regression.go
 package main
@@ -1201,12 +1208,12 @@ jobs:
 This comprehensive performance benchmarking framework provides:
 
 1. **Micro-benchmarks** for individual components
-2. **Query benchmarks** using standard workloads
-3. **Real-world scenarios** testing
-4. **Memory profiling** and leak detection
-5. **Automated regression detection**
-6. **Comparison tools** between implementations
-7. **Continuous monitoring** with CI integration
-8. **Performance dashboard** for visualization
+1. **Query benchmarks** using standard workloads
+1. **Real-world scenarios** testing
+1. **Memory profiling** and leak detection
+1. **Automated regression detection**
+1. **Comparison tools** between implementations
+1. **Continuous monitoring** with CI integration
+1. **Performance dashboard** for visualization
 
 The framework ensures that the pure-Go DuckDB implementation maintains acceptable performance characteristics compared to the CGO version.

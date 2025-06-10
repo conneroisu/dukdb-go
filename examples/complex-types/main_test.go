@@ -177,7 +177,7 @@ func TestListOperations(t *testing.T) {
 			SELECT SUM(array_length(tags)) as total_tags 
 			FROM products
 		`).Scan(&totalTags)
-		
+
 		if err != nil {
 			t.Errorf("Failed to aggregate LIST data: %v", err)
 		}
@@ -295,7 +295,7 @@ func TestStructOperations(t *testing.T) {
 			SELECT AVG(salary_info.base) 
 			FROM employees
 		`).Scan(&avgSalary)
-		
+
 		if err != nil {
 			t.Errorf("Failed to aggregate STRUCT field: %v", err)
 		}
@@ -373,9 +373,9 @@ func TestMapOperations(t *testing.T) {
 		defer rows.Close()
 
 		users := make(map[string]struct {
-			theme    string
-			hasBeta  bool
-			prefs    types.Map
+			theme   string
+			hasBeta bool
+			prefs   types.Map
 		})
 
 		for rows.Next() {
@@ -391,9 +391,9 @@ func TestMapOperations(t *testing.T) {
 			}
 
 			users[username] = struct {
-				theme    string
-				hasBeta  bool
-				prefs    types.Map
+				theme   string
+				hasBeta bool
+				prefs   types.Map
 			}{theme, hasBeta, preferences}
 		}
 
@@ -494,7 +494,7 @@ func TestNestedComplexTypes(t *testing.T) {
 
 	t.Run("InsertNestedData", func(t *testing.T) {
 		orderID := types.NewUUID()
-		
+
 		_, err := db.Exec(`
 			INSERT INTO orders VALUES (
 				?,
@@ -513,7 +513,7 @@ func TestNestedComplexTypes(t *testing.T) {
 				}
 			)
 		`, orderID)
-		
+
 		if err != nil {
 			t.Errorf("Failed to insert nested complex data: %v", err)
 		}

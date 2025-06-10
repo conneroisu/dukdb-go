@@ -25,11 +25,11 @@ func DefaultStmtCacheConfig() *StmtCacheConfig {
 
 // StmtCache implements an LRU cache for prepared statements
 type StmtCache struct {
-	mu       sync.RWMutex
-	maxSize  int
-	items    map[string]*list.Element
-	lru      *list.List
-	enabled  bool
+	mu      sync.RWMutex
+	maxSize int
+	items   map[string]*list.Element
+	lru     *list.List
+	enabled bool
 }
 
 type cacheItem struct {
@@ -42,7 +42,7 @@ func NewStmtCache(config *StmtCacheConfig) *StmtCache {
 	if config == nil {
 		config = DefaultStmtCacheConfig()
 	}
-	
+
 	return &StmtCache{
 		maxSize: config.MaxSize,
 		items:   make(map[string]*list.Element),
@@ -56,17 +56,17 @@ func (c *StmtCache) Get(query string) (purego.PreparedStatement, bool) {
 	if !c.enabled {
 		return 0, false
 	}
-	
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	if elem, exists := c.items[query]; exists {
 		// Move to front (most recently used)
 		c.lru.MoveToFront(elem)
 		item := elem.Value.(*cacheItem)
 		return item.stmt, true
 	}
-	
+
 	return 0, false
 }
 
@@ -75,10 +75,10 @@ func (c *StmtCache) Put(query string, stmt purego.PreparedStatement) {
 	if !c.enabled {
 		return
 	}
-	
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Check if already exists
 	if elem, exists := c.items[query]; exists {
 		// Update and move to front
@@ -87,7 +87,7 @@ func (c *StmtCache) Put(query string, stmt purego.PreparedStatement) {
 		item.stmt = stmt
 		return
 	}
-	
+
 	// Add new item
 	item := &cacheItem{
 		query: query,
@@ -95,7 +95,7 @@ func (c *StmtCache) Put(query string, stmt purego.PreparedStatement) {
 	}
 	elem := c.lru.PushFront(item)
 	c.items[query] = elem
-	
+
 	// Evict if necessary
 	if c.lru.Len() > c.maxSize {
 		c.evictLRU()
@@ -107,10 +107,10 @@ func (c *StmtCache) Remove(query string) {
 	if !c.enabled {
 		return
 	}
-	
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	if elem, exists := c.items[query]; exists {
 		c.removeElement(elem)
 	}
@@ -120,7 +120,7 @@ func (c *StmtCache) Remove(query string) {
 func (c *StmtCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.items = make(map[string]*list.Element)
 	c.lru.Init()
 }
@@ -129,7 +129,7 @@ func (c *StmtCache) Clear() {
 func (c *StmtCache) Size() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	return c.lru.Len()
 }
 
@@ -137,7 +137,7 @@ func (c *StmtCache) Size() int {
 func (c *StmtCache) Stats() StmtCacheStats {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	return StmtCacheStats{
 		Size:    c.lru.Len(),
 		MaxSize: c.maxSize,
@@ -156,7 +156,7 @@ func (c *StmtCache) evictLRU() {
 	if c.lru.Len() == 0 {
 		return
 	}
-	
+
 	elem := c.lru.Back()
 	if elem != nil {
 		c.removeElement(elem)
@@ -194,16 +194,16 @@ func (cc *CachedConn) PrepareContext(ctx context.Context, query string) (driver.
 			query:  query,
 		}, nil
 	}
-	
+
 	// Not in cache, prepare new statement
 	stmt, err := cc.duckdb.Prepare(cc.conn, query)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Add to cache
 	cc.cache.Put(query, stmt)
-	
+
 	return &Stmt{
 		conn:   cc.Conn,
 		duckdb: cc.duckdb,

@@ -36,7 +36,7 @@ func main() {
 
 func testConnectionPerformance() {
 	iterations := 100
-	
+
 	start := time.Now()
 	for i := 0; i < iterations; i++ {
 		db, err := sql.Open("duckdb", ":memory:")
@@ -46,9 +46,9 @@ func testConnectionPerformance() {
 		db.Close()
 	}
 	duration := time.Since(start)
-	
+
 	fmt.Printf("  Created %d connections in %v\n", iterations, duration)
-	fmt.Printf("  Average: %.2fms per connection\n", 
+	fmt.Printf("  Average: %.2fms per connection\n",
 		float64(duration.Nanoseconds())/float64(iterations)/1e6)
 }
 
@@ -61,12 +61,12 @@ func testQueryPerformance() {
 
 	// Setup test data
 	db.Exec("CREATE TABLE perf_test (id INTEGER, value VARCHAR, amount DOUBLE)")
-	
+
 	// Insert test data
 	fmt.Print("  Setting up test data...")
 	start := time.Now()
 	for i := 0; i < 10000; i++ {
-		db.Exec("INSERT INTO perf_test VALUES (?, ?, ?)", 
+		db.Exec("INSERT INTO perf_test VALUES (?, ?, ?)",
 			i, fmt.Sprintf("value_%d", i), float64(i)*1.5)
 	}
 	setupTime := time.Since(start)
@@ -88,21 +88,21 @@ func testQueryPerformance() {
 	for _, q := range queries {
 		iterations := 100
 		start := time.Now()
-		
+
 		for i := 0; i < iterations; i++ {
 			var rows *sql.Rows
 			var err error
-			
+
 			if q.args != nil {
 				rows, err = db.Query(q.query, q.args...)
 			} else {
 				rows, err = db.Query(q.query)
 			}
-			
+
 			if err != nil {
 				log.Fatal(err)
 			}
-			
+
 			// Consume results
 			for rows.Next() {
 				// Scan into interface{} to avoid type-specific overhead
@@ -116,9 +116,9 @@ func testQueryPerformance() {
 			}
 			rows.Close()
 		}
-		
+
 		duration := time.Since(start)
-		fmt.Printf("  %s: %d queries in %v (%.2fms avg)\n", 
+		fmt.Printf("  %s: %d queries in %v (%.2fms avg)\n",
 			q.name, iterations, duration,
 			float64(duration.Nanoseconds())/float64(iterations)/1e6)
 	}
@@ -133,14 +133,14 @@ func testInsertPerformance() {
 
 	// Test individual inserts
 	db.Exec("CREATE TABLE insert_test1 (id INTEGER, value VARCHAR)")
-	
+
 	iterations := 1000
 	start := time.Now()
 	for i := 0; i < iterations; i++ {
 		db.Exec("INSERT INTO insert_test1 VALUES (?, ?)", i, fmt.Sprintf("value_%d", i))
 	}
 	singleDuration := time.Since(start)
-	
+
 	fmt.Printf("  Individual inserts: %d inserts in %v (%.2fms avg)\n",
 		iterations, singleDuration,
 		float64(singleDuration.Nanoseconds())/float64(iterations)/1e6)
@@ -158,21 +158,21 @@ func testInsertPerformance() {
 		stmt.Exec(i, fmt.Sprintf("value_%d", i))
 	}
 	preparedDuration := time.Since(start)
-	
+
 	fmt.Printf("  Prepared inserts: %d inserts in %v (%.2fms avg)\n",
 		iterations, preparedDuration,
 		float64(preparedDuration.Nanoseconds())/float64(iterations)/1e6)
 
 	// Test batch inserts
 	db.Exec("CREATE TABLE insert_test3 (id INTEGER, value VARCHAR)")
-	
+
 	batchSizes := []int{10, 100, 1000}
 	for _, batchSize := range batchSizes {
 		start := time.Now()
-		
+
 		query := "INSERT INTO insert_test3 VALUES "
 		values := make([]interface{}, 0, batchSize*2)
-		
+
 		for i := 0; i < batchSize; i++ {
 			if i > 0 {
 				query += ", "
@@ -180,10 +180,10 @@ func testInsertPerformance() {
 			query += "(?, ?)"
 			values = append(values, i, fmt.Sprintf("batch_%d", i))
 		}
-		
+
 		db.Exec(query, values...)
 		batchDuration := time.Since(start)
-		
+
 		fmt.Printf("  Batch insert (%d rows): %v (%.2fms per row)\n",
 			batchSize, batchDuration,
 			float64(batchDuration.Nanoseconds())/float64(batchSize)/1e6)
@@ -226,10 +226,10 @@ func testTransactionPerformance() {
 	batchTxDuration := time.Since(start)
 
 	fmt.Printf("  No transactions: %d inserts in %v\n", iterations, noTxDuration)
-	fmt.Printf("  Individual transactions: %d inserts in %v (%.1fx slower)\n", 
-		iterations, singleTxDuration, 
+	fmt.Printf("  Individual transactions: %d inserts in %v (%.1fx slower)\n",
+		iterations, singleTxDuration,
 		float64(singleTxDuration)/float64(noTxDuration))
-	fmt.Printf("  Batch transaction: %d inserts in %v (%.1fx faster than individual)\n", 
+	fmt.Printf("  Batch transaction: %d inserts in %v (%.1fx faster than individual)\n",
 		iterations, batchTxDuration,
 		float64(singleTxDuration)/float64(batchTxDuration))
 }
@@ -253,25 +253,25 @@ func testConcurrentPerformance() {
 
 	// Test different concurrency levels
 	concurrencyLevels := []int{1, 2, 4, 8, 16}
-	
+
 	for _, numGoroutines := range concurrencyLevels {
 		iterations := 1000
-		
+
 		start := time.Now()
 		var wg sync.WaitGroup
-		
+
 		for g := 0; g < numGoroutines; g++ {
 			wg.Add(1)
 			go func(goroutineID int) {
 				defer wg.Done()
-				
+
 				for i := 0; i < iterations/numGoroutines; i++ {
 					rows, err := db.Query("SELECT COUNT(*) FROM concurrent_test WHERE id < ?", i*10)
 					if err != nil {
 						log.Printf("Query error: %v", err)
 						return
 					}
-					
+
 					for rows.Next() {
 						var count int
 						rows.Scan(&count)
@@ -280,10 +280,10 @@ func testConcurrentPerformance() {
 				}
 			}(g)
 		}
-		
+
 		wg.Wait()
 		duration := time.Since(start)
-		
+
 		qps := float64(iterations) / duration.Seconds()
 		fmt.Printf("  %d goroutines: %d queries in %v (%.0f QPS)\n",
 			numGoroutines, iterations, duration, qps)
@@ -303,7 +303,7 @@ func testMemoryUsage() {
 
 	// Create table and insert large amounts of data
 	db.Exec("CREATE TABLE memory_test (id INTEGER, data VARCHAR)")
-	
+
 	iterations := 10000
 	for i := 0; i < iterations; i++ {
 		// Large string data
@@ -315,22 +315,22 @@ func testMemoryUsage() {
 	runtime.ReadMemStats(&m2)
 
 	fmt.Printf("  Memory usage:\n")
-	fmt.Printf("    Heap allocated: %.2f MB\n", 
+	fmt.Printf("    Heap allocated: %.2f MB\n",
 		float64(m2.Alloc-m1.Alloc)/1024/1024)
-	fmt.Printf("    Total allocations: %.2f MB\n", 
+	fmt.Printf("    Total allocations: %.2f MB\n",
 		float64(m2.TotalAlloc-m1.TotalAlloc)/1024/1024)
-	fmt.Printf("    System memory: %.2f MB\n", 
+	fmt.Printf("    System memory: %.2f MB\n",
 		float64(m2.Sys-m1.Sys)/1024/1024)
 	fmt.Printf("    GC cycles: %d\n", m2.NumGC-m1.NumGC)
 
 	// Test memory cleanup
 	db.Exec("DELETE FROM memory_test")
 	runtime.GC()
-	
+
 	var m3 runtime.MemStats
 	runtime.ReadMemStats(&m3)
-	
+
 	fmt.Printf("  After cleanup:\n")
-	fmt.Printf("    Heap allocated: %.2f MB\n", 
+	fmt.Printf("    Heap allocated: %.2f MB\n",
 		float64(m3.Alloc)/1024/1024)
 }

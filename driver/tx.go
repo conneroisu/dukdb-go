@@ -15,7 +15,7 @@ func (tx *Tx) Commit() error {
 	if tx.finished {
 		return driver.ErrBadConn
 	}
-	
+
 	err := tx.conn.duckdb.Execute(tx.conn.conn, "COMMIT")
 	tx.finished = true
 	return err
@@ -26,7 +26,7 @@ func (tx *Tx) Rollback() error {
 	if tx.finished {
 		return driver.ErrBadConn
 	}
-	
+
 	err := tx.conn.duckdb.Execute(tx.conn.conn, "ROLLBACK")
 	tx.finished = true
 	return err

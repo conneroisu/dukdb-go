@@ -10,11 +10,11 @@ import (
 func (d *DuckDB) Open(path string) (Database, error) {
 	var db Database
 	pathPtr := toPtr(path)
-	
+
 	if result := d.duckdbOpen(pathPtr, &db); result != StateSuccess {
 		return 0, fmt.Errorf("failed to open database: %s", path)
 	}
-	
+
 	return db, nil
 }
 
@@ -28,11 +28,11 @@ func (d *DuckDB) CloseDatabase(db Database) {
 // Connect creates a new connection to the database
 func (d *DuckDB) Connect(db Database) (Connection, error) {
 	var conn Connection
-	
+
 	if result := d.duckdbConnect(db, &conn); result != StateSuccess {
 		return 0, fmt.Errorf("failed to connect to database")
 	}
-	
+
 	return conn, nil
 }
 
@@ -47,13 +47,13 @@ func (d *DuckDB) Disconnect(conn Connection) {
 func (d *DuckDB) Query(conn Connection, query string) (*QueryResult, error) {
 	var result Result
 	queryPtr := toPtr(query)
-	
+
 	if status := d.duckdbQuery(conn, queryPtr, &result); status != StateSuccess {
 		errMsg := d.getResultError(result)
 		d.duckdbDestroyResult(&result)
 		return nil, fmt.Errorf("query failed: %s", errMsg)
 	}
-	
+
 	return d.createQueryResult(result), nil
 }
 
@@ -61,19 +61,19 @@ func (d *DuckDB) Query(conn Connection, query string) (*QueryResult, error) {
 func (d *DuckDB) Execute(conn Connection, query string) error {
 	var result Result
 	queryPtr := toPtr(query)
-	
+
 	if status := d.duckdbExecute(conn, queryPtr, &result); status != StateSuccess {
 		errMsg := d.getResultError(result)
 		d.duckdbDestroyResult(&result)
 		return fmt.Errorf("execute failed: %s", errMsg)
 	}
-	
+
 	rowsChanged := d.duckdbColumnsChanged(result)
 	d.duckdbDestroyResult(&result)
-	
+
 	// Store rows changed if needed
 	_ = rowsChanged
-	
+
 	return nil
 }
 
@@ -81,24 +81,24 @@ func (d *DuckDB) Execute(conn Connection, query string) error {
 func (d *DuckDB) Prepare(conn Connection, query string) (PreparedStatement, error) {
 	var stmt PreparedStatement
 	queryPtr := toPtr(query)
-	
+
 	if status := d.duckdbPrepare(conn, queryPtr, &stmt); status != StateSuccess {
 		return 0, fmt.Errorf("failed to prepare statement: %s", query)
 	}
-	
+
 	return stmt, nil
 }
 
 // ExecutePrepared executes a prepared statement
 func (d *DuckDB) ExecutePrepared(stmt PreparedStatement) (*QueryResult, error) {
 	var result Result
-	
+
 	if status := d.duckdbExecutePrepared(stmt, &result); status != StateSuccess {
 		errMsg := d.getResultError(result)
 		d.duckdbDestroyResult(&result)
 		return nil, fmt.Errorf("prepared statement execution failed: %s", errMsg)
 	}
-	
+
 	return d.createQueryResult(result), nil
 }
 
@@ -124,11 +124,11 @@ func (d *DuckDB) createQueryResult(result Result) *QueryResult {
 		result:   result,
 		rowCount: d.duckdbRowCount(result),
 	}
-	
+
 	// Get column information
 	colCount := d.duckdbColumnCount(result)
 	qr.columns = make([]Column, colCount)
-	
+
 	for i := uint64(0); i < colCount; i++ {
 		namePtr := d.duckdbColumnName(result, i)
 		qr.columns[i] = Column{
@@ -137,7 +137,7 @@ func (d *DuckDB) createQueryResult(result Result) *QueryResult {
 			LogicalType: d.duckdbColumnLogicalType(result, i),
 		}
 	}
-	
+
 	return qr
 }
 
@@ -164,16 +164,16 @@ func (qr *QueryResult) GetValue(col, row uint64) (interface{}, error) {
 	if qr.result == 0 {
 		return nil, fmt.Errorf("result already closed")
 	}
-	
+
 	if row >= qr.rowCount || col >= uint64(len(qr.columns)) {
 		return nil, fmt.Errorf("invalid row or column index")
 	}
-	
+
 	// Check for NULL
 	if qr.duckdb.duckdbValueIsNull(qr.result, col, row) {
 		return nil, nil
 	}
-	
+
 	// Get value based on type
 	switch qr.columns[col].Type {
 	case TypeBoolean:
@@ -279,12 +279,12 @@ func ptrToString(ptr unsafe.Pointer) string {
 	if ptr == nil {
 		return ""
 	}
-	
+
 	// Find the null terminator
 	var length int
 	for p := (*byte)(ptr); *(*byte)(unsafe.Pointer(uintptr(unsafe.Pointer(p)) + uintptr(length))) != 0; length++ {
 	}
-	
+
 	// Create a byte slice from the pointer
 	return string((*[1 << 30]byte)(ptr)[:length:length])
 }
@@ -293,14 +293,14 @@ func ptrToString(ptr unsafe.Pointer) string {
 func (d *DuckDB) BindValue(stmt PreparedStatement, idx uint64, value interface{}) error {
 	// DuckDB uses 1-based indexing for parameters
 	paramIdx := idx + 1
-	
+
 	if value == nil {
 		if d.duckdbBindNull(stmt, paramIdx) != StateSuccess {
 			return fmt.Errorf("failed to bind null parameter at index %d", idx)
 		}
 		return nil
 	}
-	
+
 	switch v := value.(type) {
 	case bool:
 		if d.duckdbBindBoolean(stmt, paramIdx, v) != StateSuccess {
@@ -385,7 +385,7 @@ func (d *DuckDB) BindValue(stmt PreparedStatement, idx uint64, value interface{}
 			return fmt.Errorf("failed to bind parameter as string at index %d", idx)
 		}
 	}
-	
+
 	return nil
 }
 

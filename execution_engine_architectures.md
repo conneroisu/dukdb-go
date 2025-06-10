@@ -11,10 +11,10 @@ Based on DuckDB's proven vectorized execution model and morsel-driven parallelis
 ### Core Principles from DuckDB
 
 1. **Vectorized Processing**: Operations process batches (vectors) of 2048 tuples rather than individual rows
-2. **Columnar Storage**: Data stored column-wise for cache efficiency and SIMD operations
-3. **Pipeline-Based Execution**: Operators connected in pipelines with minimal materialization
-4. **Morsel-Driven Parallelism**: Work distributed in small fragments (morsels) to worker threads
-5. **Multiple Vector Formats**: Flat, constant, dictionary, and sequence vectors for compression
+1. **Columnar Storage**: Data stored column-wise for cache efficiency and SIMD operations
+1. **Pipeline-Based Execution**: Operators connected in pipelines with minimal materialization
+1. **Morsel-Driven Parallelism**: Work distributed in small fragments (morsels) to worker threads
+1. **Multiple Vector Formats**: Flat, constant, dictionary, and sequence vectors for compression
 
 ### DuckDB's Physical Operators
 
@@ -32,7 +32,7 @@ Based on DuckDB's proven vectorized execution model and morsel-driven parallelis
 - Work-stealing task scheduler
 - Cache-conscious data structures
 
----
+______________________________________________________________________
 
 ## Architecture 1: Volcano-Style Iterator Model
 
@@ -195,34 +195,40 @@ func (ca *ChunkAllocator) AllocateChunk(size int) *DataChunk {
 ### Performance Analysis
 
 **Strengths:**
+
 - Simple to implement and debug
 - Natural backpressure mechanism
 - Low memory overhead
 - Easy to add new operators
 
 **Weaknesses:**
+
 - Sequential execution limits parallelism
 - Function call overhead per chunk
 - Limited CPU cache utilization
 - Difficult to pipeline efficiently
 
 **Memory Efficiency:** ⭐⭐⭐⭐ (4/5)
+
 - Minimal intermediate materialization
 - Controlled memory usage through pull-based execution
 
 **CPU Cache Optimization:** ⭐⭐ (2/5)
+
 - Limited data locality due to function calls
 - No prefetching opportunities
 
 **Parallelization:** ⭐⭐ (2/5)
+
 - Requires exchange operators for parallelism
 - Complex to implement parallel aggregations
 
 **Go Integration:** ⭐⭐⭐⭐⭐ (5/5)
+
 - Natural fit with Go's interfaces
 - Easy error handling with standard patterns
 
----
+______________________________________________________________________
 
 ## Architecture 2: Vectorized Columnar Execution (DuckDB-Style)
 
@@ -447,35 +453,41 @@ func addInt32Vectors(left, right, result *[maxArraySize]int32, size int) {
 ### Performance Analysis
 
 **Strengths:**
+
 - Excellent CPU cache utilization
 - High throughput for analytical queries
 - Efficient memory usage with columnar layout
 - Good SIMD potential
 
 **Weaknesses:**
+
 - Complex implementation
 - Higher memory allocation overhead
 - Difficult to handle variable-width data
 - Limited flexibility for complex operators
 
 **Memory Efficiency:** ⭐⭐⭐ (3/5)
+
 - Columnar layout reduces memory bandwidth
 - Higher allocation overhead for vectors
 
 **CPU Cache Optimization:** ⭐⭐⭐⭐⭐ (5/5)
+
 - Excellent data locality
 - Prefetching opportunities
 - SIMD-friendly operations
 
 **Parallelization:** ⭐⭐⭐ (3/5)
+
 - Good for independent pipelines
 - Complex parallel aggregations
 
 **Go Integration:** ⭐⭐⭐ (3/5)
+
 - Requires unsafe operations
 - Memory management complexity
 
----
+______________________________________________________________________
 
 ## Architecture 3: Morsel-Driven Parallelism with Work-Stealing
 
@@ -795,36 +807,42 @@ func (gsi *GoSchedulerIntegration) runWorker(workerID int) {
 ### Performance Analysis
 
 **Strengths:**
+
 - Excellent parallelization across all CPU cores
 - Dynamic load balancing through work stealing
 - Natural integration with Go's runtime
 - Fault tolerance through isolated morsels
 
 **Weaknesses:**
+
 - Complex coordination between workers
 - Potential for load imbalance with variable morsel sizes
 - Overhead from work stealing mechanism
 - Synchronization costs for global state
 
 **Memory Efficiency:** ⭐⭐⭐ (3/5)
+
 - Good locality within morsels
 - Some overhead from multiple worker states
 
 **CPU Cache Optimization:** ⭐⭐⭐⭐ (4/5)
+
 - Good cache utilization within morsels
 - Some cache misses from work stealing
 
 **Parallelization:** ⭐⭐⭐⭐⭐ (5/5)
+
 - Excellent scalability across cores
 - Dynamic load balancing
 - Efficient work distribution
 
 **Go Integration:** ⭐⭐⭐⭐⭐ (5/5)
+
 - Natural fit with goroutine model
 - Leverages Go's work-stealing scheduler
 - Excellent error handling and cancellation
 
----
+______________________________________________________________________
 
 ## Physical Operator Tree Structure
 
@@ -947,7 +965,7 @@ type WindowOperator struct {
 }
 ```
 
----
+______________________________________________________________________
 
 ## Execution Pipeline and Data Flow
 
@@ -1142,7 +1160,7 @@ func (sm *SpillManager) SpillLeastUsed(requiredSize int64) error {
 }
 ```
 
----
+______________________________________________________________________
 
 ## Recommendation and Implementation Roadmap
 
@@ -1151,25 +1169,29 @@ func (sm *SpillManager) SpillLeastUsed(requiredSize int64) error {
 Based on the analysis, I recommend implementing a **hybrid approach** that combines elements from all three architectures:
 
 #### Phase 1: Volcano Foundation (Months 1-3)
+
 - Implement the basic Volcano-style iterator model
 - Establish operator interfaces and basic execution framework
 - Focus on correctness and completeness of SQL operations
 - Build comprehensive test suite
 
-#### Phase 2: Vectorized Operations (Months 4-6)  
+#### Phase 2: Vectorized Operations (Months 4-6)
+
 - Add vectorized processing within operators
 - Implement columnar data structures and vector operations
 - Optimize critical operators (scans, aggregations, joins)
 - Maintain Volcano interfaces for compatibility
 
 #### Phase 3: Morsel-Driven Parallelism (Months 7-9)
+
 - Implement morsel generation and work-stealing scheduler
 - Add parallel execution for independent operations
 - Integrate with Go's runtime scheduler
 - Optimize for multi-core performance
 
 #### Phase 4: Advanced Optimizations (Months 10-12)
-- External sorting and spilling mechanisms  
+
+- External sorting and spilling mechanisms
 - Advanced join algorithms (radix hash join)
 - Query plan optimization and cost-based decisions
 - Performance tuning and benchmarking
@@ -1177,11 +1199,11 @@ Based on the analysis, I recommend implementing a **hybrid approach** that combi
 ### Key Implementation Principles
 
 1. **Start Simple**: Begin with Volcano model for rapid development
-2. **Incremental Optimization**: Add vectorization and parallelism gradually
-3. **Go-Idiomatic Design**: Leverage Go's strengths (goroutines, channels, interfaces)
-4. **Memory Safety**: Minimize unsafe operations, prefer type safety
-5. **Extensive Testing**: Build comprehensive test suite from day one
-6. **Performance Monitoring**: Instrument for profiling and optimization
+1. **Incremental Optimization**: Add vectorization and parallelism gradually
+1. **Go-Idiomatic Design**: Leverage Go's strengths (goroutines, channels, interfaces)
+1. **Memory Safety**: Minimize unsafe operations, prefer type safety
+1. **Extensive Testing**: Build comprehensive test suite from day one
+1. **Performance Monitoring**: Instrument for profiling and optimization
 
 ### Success Metrics
 

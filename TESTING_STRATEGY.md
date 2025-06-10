@@ -5,15 +5,17 @@ This document outlines the comprehensive testing strategy for the pure-Go implem
 ## Overview
 
 The testing strategy is designed to:
+
 1. Ensure compatibility with DuckDB's SQL dialect and behavior
-2. Validate performance characteristics of the pure-Go implementation
-3. Verify correctness across all supported data types and operations
-4. Maintain compatibility with Go's database/sql interface
-5. Provide confidence in deployment without CGO dependencies
+1. Validate performance characteristics of the pure-Go implementation
+1. Verify correctness across all supported data types and operations
+1. Maintain compatibility with Go's database/sql interface
+1. Provide confidence in deployment without CGO dependencies
 
 ## Testing Philosophy
 
 ### Core Principles
+
 - **Compatibility First**: Ensure behavior matches DuckDB wherever possible
 - **Progressive Coverage**: Start with core functionality, expand to edge cases
 - **Performance Awareness**: Track performance characteristics from day one
@@ -21,6 +23,7 @@ The testing strategy is designed to:
 - **Continuous Validation**: Tests run on every commit, catching regressions early
 
 ### Test Pyramid
+
 ```
         /\
        /  \  E2E Tests (10%)
@@ -41,6 +44,7 @@ The testing strategy is designed to:
 ### 1. Unit Tests
 
 #### Parser Tests (`parser/`)
+
 ```go
 // parser_test.go
 func TestParseSelectStatement(t *testing.T) {
@@ -64,12 +68,14 @@ func TestParseSelectStatement(t *testing.T) {
 ```
 
 Coverage areas:
+
 - Basic SQL statements (SELECT, INSERT, UPDATE, DELETE)
 - DuckDB-specific syntax (LIST types, STRUCT access)
 - Complex queries (CTEs, window functions)
 - Error cases and malformed SQL
 
 #### Type System Tests (`types/`)
+
 ```go
 // types_test.go
 func TestHugeIntOperations(t *testing.T) {
@@ -86,12 +92,14 @@ func TestStructType(t *testing.T) {
 ```
 
 Coverage areas:
+
 - All DuckDB data types
 - Type conversions and coercion
 - NULL handling
 - Type-specific operations
 
 #### Execution Engine Tests (`execution/`)
+
 ```go
 // operators_test.go
 func TestScanOperator(t *testing.T) {
@@ -104,12 +112,14 @@ func TestJoinOperator(t *testing.T) {
 ```
 
 Coverage areas:
+
 - Individual operator correctness
 - Memory management
 - Parallel execution
 - Error propagation
 
 #### Storage Tests (`storage/`)
+
 ```go
 // columnar_test.go
 func TestColumnarStorage(t *testing.T) {
@@ -122,6 +132,7 @@ func TestCompression(t *testing.T) {
 ```
 
 Coverage areas:
+
 - Columnar storage operations
 - Compression/decompression
 - File format readers/writers
@@ -161,6 +172,7 @@ Conversion Error: HUGEINT out of range for INTEGER
 ```
 
 Test runner implementation:
+
 ```go
 // sqllogictest/runner.go
 type TestRunner struct {
@@ -228,6 +240,7 @@ func BenchmarkMergeJoin(b *testing.B) {
 #### Query Benchmarks (`benchmark/queries/`)
 
 Standard benchmark queries:
+
 - TPC-H (22 queries)
 - TPC-DS (subset of queries)
 - Real-world scenarios
@@ -323,9 +336,10 @@ func TestQueryProperties(t *testing.T) {
 ## Test Data Management
 
 ### Test Data Sources
+
 1. **DuckDB Test Data**: Reuse CSV, Parquet, and JSON files from DuckDB's test suite
-2. **Generated Data**: Use data generators for large-scale testing
-3. **Edge Cases**: Specific files for boundary conditions
+1. **Generated Data**: Use data generators for large-scale testing
+1. **Edge Cases**: Specific files for boundary conditions
 
 ### Test Database Setup
 
@@ -356,21 +370,25 @@ func (db *TestDB) LoadTestData(dataSet string) error {
 ### Test Stages
 
 1. **Fast Tests** (< 1 minute)
+
    - Unit tests
    - Small integration tests
    - Basic SQL logic tests
 
-2. **Standard Tests** (< 10 minutes)
+1. **Standard Tests** (< 10 minutes)
+
    - All SQL logic tests
    - Integration tests
    - Short benchmarks
 
-3. **Extended Tests** (< 1 hour)
+1. **Extended Tests** (< 1 hour)
+
    - Full benchmark suite
    - Compatibility tests
    - Large data tests
 
-4. **Nightly Tests**
+1. **Nightly Tests**
+
    - Fuzzing runs
    - Memory leak detection
    - Performance regression tests
@@ -379,10 +397,10 @@ func (db *TestDB) LoadTestData(dataSet string) error {
 
 | Platform | Go Version | Test Suite |
 |----------|------------|------------|
-| Linux    | 1.21       | Full       |
-| Linux    | 1.22       | Full       |
-| macOS    | 1.22       | Full       |
-| Windows  | 1.22       | Standard   |
+| Linux | 1.21 | Full |
+| Linux | 1.22 | Full |
+| macOS | 1.22 | Full |
+| Windows | 1.22 | Standard |
 
 ### Performance Tracking
 
@@ -413,6 +431,7 @@ jobs:
 ## Test Coverage Requirements
 
 ### Minimum Coverage Targets
+
 - Overall: 80%
 - Core packages: 90%
   - `parser/`: 95%
@@ -434,12 +453,13 @@ go run scripts/check_coverage.go --min-coverage=80
 ## Testing Tools and Infrastructure
 
 ### Required Tools
+
 1. **Go Testing**: Standard library + testify for assertions
-2. **SQL Logic Test Runner**: Custom implementation
-3. **Benchmark Framework**: Standard Go benchmarks + comparison tools
-4. **Fuzzing**: Go 1.18+ native fuzzing
-5. **Property Testing**: gopter or rapid
-6. **Load Testing**: Custom harness for concurrent queries
+1. **SQL Logic Test Runner**: Custom implementation
+1. **Benchmark Framework**: Standard Go benchmarks + comparison tools
+1. **Fuzzing**: Go 1.18+ native fuzzing
+1. **Property Testing**: gopter or rapid
+1. **Load Testing**: Custom harness for concurrent queries
 
 ### Test Helpers
 
@@ -466,26 +486,31 @@ func GenerateQuery(complexity int) string {
 ## Implementation Timeline
 
 ### Phase 1: Foundation (Weeks 1-2)
+
 - Set up test infrastructure
 - Implement SQL Logic Test runner
 - Create basic test suites for parser and types
 
 ### Phase 2: Core Tests (Weeks 3-6)
+
 - Port essential DuckDB SQL logic tests
 - Implement unit tests for all components
 - Create benchmark framework
 
 ### Phase 3: Compatibility (Weeks 7-8)
+
 - Set up CGO comparison tests
 - Implement behavior validation
 - Document any intentional differences
 
 ### Phase 4: Advanced Testing (Weeks 9-12)
+
 - Add fuzzing tests
 - Implement property-based tests
 - Create performance regression suite
 
 ### Phase 5: Continuous Improvement
+
 - Monitor test coverage
 - Add tests for reported issues
 - Expand benchmark suite
@@ -496,23 +521,25 @@ func GenerateQuery(complexity int) string {
 The testing strategy will be considered successful when:
 
 1. **Coverage**: Achieving 80%+ code coverage with critical paths at 90%+
-2. **Compatibility**: Passing 95%+ of applicable DuckDB SQL logic tests
-3. **Performance**: Benchmarks show acceptable performance (within 2x of CGO version for most queries)
-4. **Reliability**: No crashes in 24-hour fuzzing runs
-5. **Deployment**: Successful static binary deployment across platforms
+1. **Compatibility**: Passing 95%+ of applicable DuckDB SQL logic tests
+1. **Performance**: Benchmarks show acceptable performance (within 2x of CGO version for most queries)
+1. **Reliability**: No crashes in 24-hour fuzzing runs
+1. **Deployment**: Successful static binary deployment across platforms
 
 ## Maintenance and Evolution
 
 ### Test Maintenance
+
 - Regular updates to match DuckDB's evolving test suite
 - Continuous addition of regression tests
 - Performance baseline updates
 - Documentation of test patterns
 
 ### Test Review Process
+
 1. All new features require corresponding tests
-2. Bug fixes require regression tests
-3. Performance changes require benchmark updates
-4. API changes require compatibility test updates
+1. Bug fixes require regression tests
+1. Performance changes require benchmark updates
+1. API changes require compatibility test updates
 
 This comprehensive testing strategy ensures that the pure-Go DuckDB implementation maintains high quality, compatibility, and performance standards throughout its development and evolution.

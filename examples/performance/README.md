@@ -40,6 +40,7 @@ go test -bench=BenchmarkInsert -benchmem
 ### 1. Connection Performance
 
 #### Connection Creation
+
 ```go
 // Measure connection creation overhead
 start := time.Now()
@@ -48,6 +49,7 @@ duration := time.Since(start)
 ```
 
 #### Connection Pooling
+
 ```go
 // Configure connection pool for optimal performance
 db.SetMaxOpenConns(10)
@@ -59,6 +61,7 @@ db.SetConnMaxIdleTime(30 * time.Minute)
 ### 2. Query Performance Patterns
 
 #### Simple Queries
+
 ```sql
 -- Fast analytical queries
 SELECT COUNT(*) FROM large_table;
@@ -66,12 +69,14 @@ SELECT AVG(amount) FROM transactions;
 ```
 
 #### Range Queries
+
 ```sql
 -- Efficient with proper indexing
 SELECT * FROM events WHERE created_at BETWEEN ? AND ?;
 ```
 
 #### Aggregation Queries
+
 ```sql
 -- DuckDB's strength: fast aggregations
 SELECT category, COUNT(*), SUM(amount), AVG(amount)
@@ -80,6 +85,7 @@ GROUP BY category;
 ```
 
 #### Complex Analytical Queries
+
 ```sql
 -- Window functions and advanced analytics
 SELECT 
@@ -93,6 +99,7 @@ FROM sales;
 ### 3. Insert Performance Strategies
 
 #### Individual Inserts (Slowest)
+
 ```go
 for i := 0; i < 1000; i++ {
     db.Exec("INSERT INTO table VALUES (?, ?)", i, value)
@@ -100,6 +107,7 @@ for i := 0; i < 1000; i++ {
 ```
 
 #### Prepared Statements (Better)
+
 ```go
 stmt, _ := db.Prepare("INSERT INTO table VALUES (?, ?)")
 defer stmt.Close()
@@ -110,6 +118,7 @@ for i := 0; i < 1000; i++ {
 ```
 
 #### Batch Inserts (Fastest)
+
 ```go
 // Build single query with multiple values
 query := "INSERT INTO table VALUES (?, ?), (?, ?), (?, ?)"
@@ -119,6 +128,7 @@ db.Exec(query, val1, val2, val3, val4, val5, val6)
 ### 4. Transaction Performance
 
 #### Transaction Patterns
+
 ```go
 // Individual transactions (high overhead)
 for i := 0; i < 1000; i++ {
@@ -138,6 +148,7 @@ tx.Commit()
 ### 5. Concurrent Performance
 
 #### Goroutine Scaling
+
 ```go
 // Test different concurrency levels
 concurrencyLevels := []int{1, 2, 4, 8, 16}
@@ -163,6 +174,7 @@ for _, numGoroutines := range concurrencyLevels {
 ### 6. Memory Usage Analysis
 
 #### Memory Monitoring
+
 ```go
 var m1, m2 runtime.MemStats
 runtime.GC()
@@ -180,21 +192,25 @@ totalAlloc := m2.TotalAlloc - m1.TotalAlloc
 ## Performance Optimization Tips
 
 ### 1. Connection Management
+
 - **Pool Size**: Set appropriate `MaxOpenConns` based on workload
 - **Idle Connections**: Use `MaxIdleConns` to balance memory vs latency
 - **Connection Lifetime**: Set `ConnMaxLifetime` to handle long-running apps
 
 ### 2. Query Optimization
+
 - **Prepared Statements**: Reuse for repeated queries
 - **Batch Operations**: Combine multiple operations when possible
 - **Result Streaming**: Use `rows.Next()` for large result sets
 
 ### 3. Data Loading
+
 - **Batch Inserts**: Much faster than individual inserts
 - **Transactions**: Use for consistency and performance
 - **COPY Operations**: Consider for bulk data loading
 
 ### 4. Memory Management
+
 - **Close Resources**: Always close rows, statements, and connections
 - **GC Pressure**: Monitor garbage collection impact
 - **Buffer Sizes**: Tune for your data patterns
@@ -202,6 +218,7 @@ totalAlloc := m2.TotalAlloc - m1.TotalAlloc
 ## Benchmarking Best Practices
 
 ### 1. Environment Setup
+
 ```go
 func BenchmarkQuery(b *testing.B) {
     // Setup outside timing
@@ -218,12 +235,14 @@ func BenchmarkQuery(b *testing.B) {
 ```
 
 ### 2. Memory Benchmarks
+
 ```go
 // Include memory allocation stats
 go test -bench=. -benchmem
 ```
 
 ### 3. Statistical Significance
+
 ```go
 // Run multiple times for stable results
 go test -bench=. -count=5
@@ -232,18 +251,21 @@ go test -bench=. -count=5
 ## Performance Monitoring
 
 ### 1. Application Metrics
+
 - Query execution time
 - Connection pool utilization
 - Error rates and timeouts
 - Memory usage patterns
 
 ### 2. Database Metrics
+
 - Query throughput (QPS)
 - Transaction rates (TPS)
 - Cache hit ratios
 - Resource utilization
 
 ### 3. System Metrics
+
 - CPU usage
 - Memory consumption
 - I/O patterns
@@ -252,15 +274,19 @@ go test -bench=. -count=5
 ## Real-World Use Cases
 
 ### 1. High-Throughput Analytics
+
 Optimizing for maximum query throughput in analytical workloads.
 
 ### 2. Real-Time Data Ingestion
+
 Balancing insert performance with query responsiveness.
 
 ### 3. Concurrent Applications
+
 Scaling database access across multiple goroutines and connections.
 
 ### 4. Resource-Constrained Environments
+
 Optimizing memory usage and connection overhead.
 
 This performance example provides the foundation for understanding, measuring, and optimizing DuckDB driver performance in production applications.

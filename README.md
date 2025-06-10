@@ -7,6 +7,7 @@ A pure-Go implementation of a DuckDB driver for `database/sql`. This driver uses
 ⚠️ **Early Development** - This driver is in early development and not yet ready for production use.
 
 ### Completed
+
 - ✅ Basic project structure
 - ✅ Purego wrapper for DuckDB C API
 - ✅ database/sql driver interface implementation
@@ -27,10 +28,12 @@ A pure-Go implementation of a DuckDB driver for `database/sql`. This driver uses
 - ✅ CI/CD with GitHub Actions
 
 ### In Progress
+
 - 🚧 Full complex type integration (native LIST/STRUCT/MAP handling)
 - 🚧 Full decimal type with precision/scale
 
 ### Recently Added
+
 - ✅ Context support for cancellation
 - ✅ Connection pooling implementation
 - ✅ Prepared statement caching
@@ -38,6 +41,7 @@ A pure-Go implementation of a DuckDB driver for `database/sql`. This driver uses
 - ✅ Concurrent access optimizations
 
 ### TODO
+
 - ❌ ENUM type
 - ❌ DuckDB extensions support
 - ❌ Native Go implementation (replace purego)
@@ -124,11 +128,13 @@ direnv allow
 ### Option 2: System Installation
 
 Install DuckDB on your system:
+
 - **macOS**: `brew install duckdb`
 - **Ubuntu/Debian**: Download from [DuckDB releases](https://github.com/duckdb/duckdb/releases)
 - **Windows**: Download DLL from releases
 
 The driver looks for:
+
 - macOS: `libduckdb.dylib`
 - Linux: `libduckdb.so`
 - Windows: `duckdb.dll`
@@ -147,8 +153,8 @@ go run your-app.go
 The driver is structured in layers:
 
 1. **Purego Wrapper** (`internal/purego/`) - Low-level FFI bindings to DuckDB C API
-2. **Driver Implementation** (`driver/`) - database/sql interface implementation
-3. **Public API** (`duckdb.go`) - User-facing package
+1. **Driver Implementation** (`driver/`) - database/sql interface implementation
+1. **Public API** (`duckdb.go`) - User-facing package
 
 The long-term goal is to progressively replace the purego/C dependencies with native Go implementations.
 

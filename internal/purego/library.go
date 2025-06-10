@@ -32,14 +32,14 @@ func LoadLibrary() (*Library, error) {
 	libNames := []string{
 		getDuckDBLibrary(), // System default
 	}
-	
+
 	// Check environment variable for custom location (e.g., from Nix)
 	if libDir := os.Getenv("DUCKDB_LIB_DIR"); libDir != "" {
 		libNames = append([]string{
 			filepath.Join(libDir, getDuckDBLibrary()),
 		}, libNames...)
 	}
-	
+
 	// Try loading from each location
 	var lastErr error
 	for _, libName := range libNames {
@@ -49,7 +49,7 @@ func LoadLibrary() (*Library, error) {
 		}
 		lastErr = err
 	}
-	
+
 	return nil, fmt.Errorf("failed to load DuckDB library from any location: %w", lastErr)
 }
 

@@ -11,24 +11,28 @@ This document presents three comprehensive API architecture approaches for imple
 The DuckDB C API (`duckdb.h`) provides the following core functionality:
 
 **Connection Management:**
+
 - `duckdb_open()` / `duckdb_open_ext()` - Database creation and opening
 - `duckdb_connect()` - Connection establishment
 - `duckdb_disconnect()` - Connection cleanup
 - Support for both file-based and in-memory databases
 
 **Statement Execution:**
+
 - `duckdb_prepare()` - Prepared statement creation
 - Type-specific binding functions (`duckdb_bind_int32()`, `duckdb_bind_varchar()`, etc.)
 - `duckdb_execute_prepared()` - Parameterized execution
 - Direct query execution for simple cases
 
 **Result Handling:**
+
 - `duckdb_result` structure with comprehensive metadata
 - Chunk-based result retrieval (`duckdb_result_get_chunk()`)
 - Column type introspection and data access
 - Support for large analytical result sets
 
 **Memory Management:**
+
 - Explicit resource cleanup (`duckdb_destroy_result()`, etc.)
 - Custom allocators (`duckdb_malloc()`, `duckdb_free()`)
 - RAII-like patterns for resource safety
@@ -38,26 +42,31 @@ The DuckDB C API (`duckdb.h`) provides the following core functionality:
 The Go `database/sql` package requires implementing several key interfaces:
 
 **Core Driver Interfaces:**
+
 - `driver.Driver` - Entry point with `Open()` method
 - `driver.DriverContext` - Enhanced driver with `OpenConnector()`
 - `driver.Connector` - Fixed configuration connection factory
 
 **Connection Interfaces:**
+
 - `driver.Conn` - Basic connection interface
 - `driver.Validator` - Connection health checking
 - `driver.SessionResetter` - Connection state reset
 - `driver.Pinger` - Connection ping capability
 
 **Query Execution:**
+
 - `driver.ExecerContext` - Non-returning query execution
 - `driver.QueryerContext` - Result-returning query execution
 - `driver.StmtExecContext` / `driver.StmtQueryContext` - Statement-level execution
 
 **Transaction Management:**
+
 - `driver.Tx` - Basic transaction interface
 - `driver.ConnBeginTx` - Transaction options support
 
 **Result Handling:**
+
 - `driver.Rows` - Result iteration
 - `driver.RowsNextResultSet` - Multiple result set support
 - Column type introspection interfaces
@@ -65,12 +74,14 @@ The Go `database/sql` package requires implementing several key interfaces:
 ### Pure-Go Driver Patterns Analysis
 
 **lib/pq (PostgreSQL):**
+
 - Wire protocol implementation
 - Connection pooling integration
 - PostgreSQL-specific features (LISTEN/NOTIFY, arrays)
 - Standard `database/sql` compliance
 
 **go-sql-driver/mysql (MySQL):**
+
 - Pure Go protocol implementation
 - No CGO dependencies
 - Intelligent connection management
@@ -78,6 +89,7 @@ The Go `database/sql` package requires implementing several key interfaces:
 - Full context support
 
 **microsoft/go-mssqldb (SQL Server):**
+
 - TDS protocol implementation
 - Azure Active Directory integration
 - Advanced logging architecture
@@ -88,11 +100,13 @@ The Go `database/sql` package requires implementing several key interfaces:
 ## Approach 1: Standard database/sql Interface Only
 
 ### Overview
+
 This approach provides a clean, standards-compliant implementation that focuses solely on the Go `database/sql` interface, hiding all DuckDB-specific functionality behind the standard API.
 
 ### Architecture Components
 
 #### Driver Registration and Initialization
+
 ```go
 // Package initialization
 func init() {
@@ -122,6 +136,7 @@ func (d *DuckDBDriver) OpenConnector(name string) (driver.Connector, error) {
 ```
 
 #### Connection Management
+
 ```go
 type DuckDBConnector struct {
     config *Config
@@ -186,6 +201,7 @@ func (c *DuckDBConnection) QueryContext(ctx context.Context, query string, args 
 ```
 
 #### Statement Management
+
 ```go
 type DuckDBStmt struct {
     conn  *DuckDBConnection
@@ -248,6 +264,7 @@ func (s *DuckDBStmt) QueryContext(ctx context.Context, args []driver.NamedValue)
 ```
 
 #### Result Set Management
+
 ```go
 type DuckDBRows struct {
     resultSet *ResultSet
@@ -307,6 +324,7 @@ func (r *DuckDBRows) ColumnTypePrecisionScale(index int) (precision, scale int64
 ```
 
 #### Type System Integration
+
 ```go
 type TypeConverter struct{}
 
@@ -352,6 +370,7 @@ func (s *DuckDBStmt) bindParameters(args []driver.NamedValue) error {
 ```
 
 #### Transaction Management
+
 ```go
 func (c *DuckDBConnection) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
     c.mu.Lock()
@@ -410,6 +429,7 @@ func (tx *DuckDBTx) Rollback() error {
 ```
 
 ### Connection Pooling Integration
+
 ```go
 func (c *DuckDBConnection) IsValid() bool {
     c.mu.RLock()
@@ -443,26 +463,30 @@ func (c *DuckDBConnection) Ping(ctx context.Context) error {
 ```
 
 ### Advantages
+
 - **Simplicity**: Clean, well-understood interface
 - **Compatibility**: Works with all existing Go SQL tooling
 - **Portability**: Easy to switch from other databases
 - **Maintenance**: Follows established patterns
 
 ### Limitations
+
 - **Feature Access**: Cannot expose DuckDB-specific capabilities
 - **Performance**: May not optimize for analytical workloads
 - **Functionality**: Limited to standard SQL operations
 
----
+______________________________________________________________________
 
 ## Approach 2: Extended Interface with DuckDB-Specific Features
 
 ### Overview
+
 This approach extends the standard `database/sql` interface with DuckDB-specific functionality through additional interfaces and methods while maintaining full compatibility.
 
 ### Architecture Components
 
 #### Enhanced Driver Registration
+
 ```go
 func init() {
     sql.Register("duckdb", &DuckDBDriver{})
@@ -505,6 +529,7 @@ func (c *DuckDBExtendedConnector) Connect(ctx context.Context) (driver.Conn, err
 ```
 
 #### Extended Connection Interface
+
 ```go
 // DuckDBExtendedConnection embeds standard connection and adds DuckDB features
 type DuckDBExtendedConnection struct {
@@ -597,6 +622,7 @@ func (c *DuckDBExtendedConnection) BulkInsert(ctx context.Context, tableName str
 ```
 
 #### Enhanced Result Set Handling
+
 ```go
 type AnalyticalRows struct {
     *DuckDBRows
@@ -646,6 +672,7 @@ func (r *AnalyticalRows) GetColumnVector(columnIndex int) (Vector, error) {
 ```
 
 #### DuckDB Type System Extensions
+
 ```go
 // Extended type support for DuckDB-specific types
 type DuckDBTypeConverter struct {
@@ -691,6 +718,7 @@ func (tc *DuckDBTypeConverter) convertList(list List) (driver.Value, error) {
 ```
 
 #### Configuration and Pragma Support
+
 ```go
 type DuckDBConfig struct {
     MemoryLimit         int64
@@ -738,6 +766,7 @@ func (c *DuckDBExtendedConnection) LoadExtension(ctx context.Context, name strin
 ```
 
 #### Connection Pool Enhancement
+
 ```go
 type DuckDBExtendedConnector struct {
     *DuckDBConnector
@@ -769,6 +798,7 @@ func (c *DuckDBExtendedConnection) warmup(ctx context.Context) error {
 ### Usage Examples
 
 #### Standard Usage (Compatible with existing code)
+
 ```go
 db, err := sql.Open("duckdb-extended", "data.db")
 if err != nil {
@@ -780,6 +810,7 @@ rows, err := db.Query("SELECT * FROM sales WHERE year = ?", 2023)
 ```
 
 #### Extended Usage (DuckDB-specific features)
+
 ```go
 db, err := sql.Open("duckdb-extended", "data.db?extensions=parquet,json&memory_limit=4GB")
 if err != nil {
@@ -802,26 +833,30 @@ fmt.Printf("Execution time: %v\n", analyticalRows.ExecutionStatistics().Executio
 ```
 
 ### Advantages
+
 - **Feature Access**: Full access to DuckDB capabilities
 - **Compatibility**: Maintains standard `database/sql` compatibility
 - **Performance**: Optimized for analytical workloads
 - **Flexibility**: Gradual adoption of advanced features
 
 ### Limitations
+
 - **Complexity**: More complex API surface
 - **Type Safety**: Runtime interface assertions required
 - **Learning Curve**: Additional concepts to understand
 
----
+______________________________________________________________________
 
 ## Approach 3: Dual-Mode API (Standard + Native)
 
 ### Overview
+
 This approach provides two complete APIs: a standard `database/sql` compatible interface and a native DuckDB API optimized for analytical workloads, allowing users to choose the appropriate interface for their needs.
 
 ### Architecture Components
 
 #### Dual Driver Registration
+
 ```go
 func init() {
     // Standard SQL interface
@@ -852,6 +887,7 @@ const (
 ```
 
 #### Standard SQL Driver (Mode 1)
+
 ```go
 // StandardSQLDriver provides pure database/sql compatibility
 type StandardSQLDriver struct {
@@ -907,6 +943,7 @@ func (c *StandardConnection) QueryContext(ctx context.Context, query string, arg
 ```
 
 #### Native DuckDB Driver (Mode 2)
+
 ```go
 // NativeDuckDBDriver provides full DuckDB analytical capabilities
 type NativeDuckDBDriver struct {
@@ -1022,6 +1059,7 @@ func (c *NativeConnection) loadParquet(ctx context.Context, request BulkLoadRequ
 ```
 
 #### Vectorized Result Processing
+
 ```go
 // AnalyticalResult provides vectorized access to query results
 type AnalyticalResult struct {
@@ -1086,6 +1124,7 @@ func (r *AnalyticalResult) ProcessColumns(fn func(columnIndex int, vector Vector
 ```
 
 #### Advanced Query Planning and Optimization
+
 ```go
 type QueryPlanner struct {
     database    *NativeDatabase
@@ -1146,6 +1185,7 @@ type ParallelHashJoinOperator struct {
 ```
 
 #### Connection Factory and Management
+
 ```go
 // ConnectionFactory manages both standard and native connections
 type ConnectionFactory struct {
@@ -1238,6 +1278,7 @@ func (c *DualModeConnection) Execute(ctx context.Context, query string, args ...
 ```
 
 #### Advanced Type System and Interoperability
+
 ```go
 // Unified type system supporting both standard SQL and DuckDB types
 type UnifiedTypeSystem struct {
@@ -1292,6 +1333,7 @@ func (h *ComplexTypeHandler) ConvertToStandardSQL(value interface{}, duckdbType 
 ### Usage Examples
 
 #### Standard SQL Mode
+
 ```go
 // Use exactly like any other database/sql driver
 db, err := sql.Open("duckdb", "data.db")
@@ -1318,6 +1360,7 @@ for rows.Next() {
 ```
 
 #### Native Analytical Mode
+
 ```go
 // Use native DuckDB interface for analytical workloads
 factory := NewConnectionFactory(FactoryConfig{})
@@ -1372,6 +1415,7 @@ err = result.ProcessColumns(func(columnIndex int, vector Vector) error {
 ```
 
 #### Dual Mode with Smart Routing
+
 ```go
 // Create dual-mode connection that automatically routes queries
 conn, err := factory.CreateDualModeConnection("duckdb://data.db?mode=dual", DualMode)
@@ -1396,6 +1440,7 @@ _, err = conn.Execute(ctx, "COPY sales_data FROM 'large_dataset.parquet'")
 ```
 
 ### Advantages
+
 - **Flexibility**: Choose appropriate interface for each use case
 - **Performance**: Native interface optimized for analytical workloads
 - **Compatibility**: Standard interface for existing applications
@@ -1403,12 +1448,13 @@ _, err = conn.Execute(ctx, "COPY sales_data FROM 'large_dataset.parquet'")
 - **Optimization**: Smart query routing for optimal performance
 
 ### Limitations
+
 - **Complexity**: Most complex implementation approach
 - **Resource Usage**: Potentially higher memory usage for dual-mode connections
 - **Learning Curve**: Developers need to understand both interfaces
 - **Maintenance**: Two complete API surfaces to maintain
 
----
+______________________________________________________________________
 
 ## Integration Considerations
 
@@ -1620,7 +1666,7 @@ func (m *ConcurrentQueryManager) ExecuteConcurrent(ctx context.Context, queries 
 }
 ```
 
----
+______________________________________________________________________
 
 ## Compatibility Analysis
 
@@ -1683,28 +1729,32 @@ func (m *ConcurrentQueryManager) ExecuteConcurrent(ctx context.Context, queries 
 | Concurrency | ✅ Standard | ✅ Enhanced | ✅ Optimized |
 | Large Result Sets | ⚠️ Limited | ✅ Good | ✅ Excellent |
 
----
+______________________________________________________________________
 
 ## Recommendations
 
 ### For Different Use Cases
 
 **Standard OLTP Applications:**
+
 - **Recommended: Approach 1** - Provides clean, simple interface with excellent compatibility
 - Focus on standard SQL operations with predictable performance
 - Easy migration from other SQL databases
 
 **Analytical Workloads:**
+
 - **Recommended: Approach 3** - Provides optimal performance for analytical queries
 - Native interface designed for OLAP operations
 - Full access to DuckDB's analytical capabilities
 
 **Mixed Workloads:**
+
 - **Recommended: Approach 2 or 3** - Approach 2 for gradual adoption, Approach 3 for maximum flexibility
 - Allows optimization per query type
 - Supports both transactional and analytical patterns
 
 **Library/Framework Integration:**
+
 - **Recommended: Approach 1** - Simplest integration with existing Go tooling
 - Standard `database/sql` interface ensures compatibility
 - Minimal learning curve for developers
@@ -1712,17 +1762,17 @@ func (m *ConcurrentQueryManager) ExecuteConcurrent(ctx context.Context, queries 
 ### Implementation Priority
 
 1. **Phase 1: Core Implementation** - Start with Approach 1 for solid foundation
-2. **Phase 2: Extended Features** - Add Approach 2 capabilities for DuckDB-specific features
-3. **Phase 3: Native Interface** - Implement Approach 3 for maximum performance
+1. **Phase 2: Extended Features** - Add Approach 2 capabilities for DuckDB-specific features
+1. **Phase 3: Native Interface** - Implement Approach 3 for maximum performance
 
 ### Architecture Decision Framework
 
 Choose based on:
 
 1. **Compatibility Requirements** - How important is drop-in replacement capability?
-2. **Performance Needs** - Are analytical workloads performance-critical?
-3. **Feature Usage** - Do you need DuckDB-specific features?
-4. **Development Resources** - How much complexity can the team handle?
-5. **Migration Timeline** - Is this a gradual or complete migration?
+1. **Performance Needs** - Are analytical workloads performance-critical?
+1. **Feature Usage** - Do you need DuckDB-specific features?
+1. **Development Resources** - How much complexity can the team handle?
+1. **Migration Timeline** - Is this a gradual or complete migration?
 
 This comprehensive analysis provides three viable approaches for implementing a pure-Go DuckDB-compatible database with varying levels of compatibility and feature access. Each approach addresses different use cases while maintaining the fundamental requirement of database/sql compatibility.

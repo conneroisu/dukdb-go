@@ -45,7 +45,7 @@ func TestDateTimeOperations(t *testing.T) {
 			INSERT INTO events VALUES 
 			(1, ?, TIME '14:30:00', ?, 'Test event')
 		`, date, timestamp)
-		
+
 		if err != nil {
 			t.Errorf("Failed to insert datetime data: %v", err)
 		}
@@ -103,7 +103,7 @@ func TestBlobOperations(t *testing.T) {
 
 	t.Run("InsertBlobData", func(t *testing.T) {
 		testData := []byte("This is test binary data \x00\x01\x02\x03")
-		
+
 		_, err := db.Exec("INSERT INTO files VALUES (?, ?, ?)", 1, "test.bin", testData)
 		if err != nil {
 			t.Errorf("Failed to insert blob data: %v", err)
@@ -394,7 +394,7 @@ func BenchmarkAdvancedOperations(b *testing.B) {
 	// Insert sample data
 	for i := 0; i < 1000; i++ {
 		category := []string{"A", "B", "C"}[i%3]
-		_, err := db.Exec("INSERT INTO bench_analytics VALUES (?, ?, ?, NOW())", 
+		_, err := db.Exec("INSERT INTO bench_analytics VALUES (?, ?, ?, NOW())",
 			i, category, float64(i)*1.5)
 		if err != nil {
 			b.Errorf("Failed to insert benchmark data: %v", err)

@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package integration
@@ -23,7 +24,7 @@ func TestRealDuckDBIntegration(t *testing.T) {
 		tmpDir := t.TempDir()
 		dbPath := filepath.Join(tmpDir, "test.db")
 		testDuckDBFeatures(t, dbPath)
-		
+
 		// Verify file was created
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 			t.Error("Database file was not created")
@@ -288,7 +289,7 @@ func testDateTimeTypes(t *testing.T, db *sql.DB) {
 	// Verify timestamp (within microsecond precision)
 	diff := timestamp.Sub(testTimestamp).Abs()
 	if diff > time.Microsecond {
-		t.Errorf("Timestamp mismatch: expected %v, got %v (diff: %v)", 
+		t.Errorf("Timestamp mismatch: expected %v, got %v (diff: %v)",
 			testTimestamp, timestamp, diff)
 	}
 }
@@ -455,7 +456,7 @@ func testConcurrentAccess(t *testing.T, db *sql.DB) {
 
 			// Each goroutine performs multiple operations
 			for j := 0; j < 10; j++ {
-				_, err := db.Exec("INSERT INTO concurrent_test VALUES (?, ?)", 
+				_, err := db.Exec("INSERT INTO concurrent_test VALUES (?, ?)",
 					id*10+j, id*100+j)
 				if err != nil {
 					t.Errorf("Goroutine %d: insert failed: %v", id, err)
@@ -463,7 +464,7 @@ func testConcurrentAccess(t *testing.T, db *sql.DB) {
 				}
 
 				var count int
-				err = db.QueryRow("SELECT COUNT(*) FROM concurrent_test WHERE id >= ?", 
+				err = db.QueryRow("SELECT COUNT(*) FROM concurrent_test WHERE id >= ?",
 					id*10).Scan(&count)
 				if err != nil {
 					t.Errorf("Goroutine %d: query failed: %v", id, err)

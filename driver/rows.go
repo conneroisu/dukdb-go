@@ -16,7 +16,7 @@ type Rows struct {
 	result  *purego.QueryResult
 	cols    []purego.Column
 	current uint64
-	stmt    *Stmt // Optional: set if rows came from a prepared statement
+	stmt    *Stmt           // Optional: set if rows came from a prepared statement
 	ctx     context.Context // Context for cancellation
 }
 
@@ -35,13 +35,13 @@ func (r *Rows) Close() error {
 		r.result.Close()
 		r.result = nil
 	}
-	
+
 	// Close the statement if this came from a prepared statement
 	if r.stmt != nil {
 		r.stmt.Close()
 		r.stmt = nil
 	}
-	
+
 	return nil
 }
 
@@ -55,11 +55,11 @@ func (r *Rows) Next(dest []driver.Value) error {
 		default:
 		}
 	}
-	
+
 	if r.current >= r.result.RowCount() {
 		return io.EOF
 	}
-	
+
 	// Fetch values for current row
 	for i := range dest {
 		val, err := r.result.GetValue(uint64(i), r.current)
@@ -68,7 +68,7 @@ func (r *Rows) Next(dest []driver.Value) error {
 		}
 		dest[i] = val
 	}
-	
+
 	r.current++
 	return nil
 }
@@ -78,7 +78,7 @@ func (r *Rows) ColumnTypeDatabaseTypeName(index int) string {
 	if index < 0 || index >= len(r.cols) {
 		return ""
 	}
-	
+
 	return getTypeName(r.cols[index].Type)
 }
 
@@ -105,7 +105,7 @@ func (r *Rows) ColumnTypeScanType(index int) reflect.Type {
 	if index < 0 || index >= len(r.cols) {
 		return reflect.TypeOf(interface{}(nil))
 	}
-	
+
 	switch r.cols[index].Type {
 	case purego.TypeBoolean:
 		return reflect.TypeOf(bool(false))

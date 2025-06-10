@@ -36,11 +36,13 @@ nix develop
 #### Option 2: Manual Installation
 
 **macOS (Homebrew):**
+
 ```bash
 brew install duckdb
 ```
 
 **Ubuntu/Debian:**
+
 ```bash
 # Add DuckDB APT repository
 curl -L https://github.com/duckdb/duckdb/releases/download/v0.10.0/duckdb_cli-linux-amd64.zip -o duckdb.zip
@@ -49,6 +51,7 @@ sudo mv duckdb /usr/local/bin/
 ```
 
 **From Source:**
+
 ```bash
 git clone https://github.com/duckdb/duckdb.git
 cd duckdb
@@ -338,13 +341,13 @@ driver.SetStatementCacheSize(200)
 If you get a "library not found" error:
 
 1. Ensure DuckDB is installed and in your system's library path
-2. Set the `DUCKDB_LIB_DIR` environment variable
-3. Use the Nix development environment which handles this automatically
+1. Set the `DUCKDB_LIB_DIR` environment variable
+1. Use the Nix development environment which handles this automatically
 
 ### Build Errors
 
 For build issues:
 
 1. Ensure you're using Go 1.21 or later
-2. Run `go mod tidy` to ensure dependencies are up to date
-3. Check the [Build Process](/guides/build-process/) guide for detailed instructions
+1. Run `go mod tidy` to ensure dependencies are up to date
+1. Check the [Build Process](/guides/build-process/) guide for detailed instructions

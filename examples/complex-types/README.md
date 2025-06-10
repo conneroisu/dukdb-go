@@ -33,6 +33,7 @@ go test -bench=. -benchmem
 ## What You'll Learn
 
 ### 1. UUID Type
+
 ```sql
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -41,11 +42,13 @@ CREATE TABLE users (
 
 INSERT INTO users VALUES (uuid(), 'Alice');
 ```
+
 - Generate and validate UUIDs
 - Use UUIDs as primary keys
 - UUID comparison and sorting
 
 ### 2. LIST/ARRAY Types
+
 ```sql
 CREATE TABLE products (
     name VARCHAR,
@@ -61,6 +64,7 @@ SELECT tags[1] FROM products; -- First element
 ```
 
 ### 3. STRUCT Types
+
 ```sql
 CREATE TABLE employees (
     name VARCHAR,
@@ -77,6 +81,7 @@ SELECT address.city FROM employees;
 ```
 
 ### 4. MAP Types
+
 ```sql
 CREATE TABLE user_settings (
     user_id INTEGER,
@@ -95,6 +100,7 @@ SELECT cardinality(preferences) FROM user_settings;
 ```
 
 ### 5. Nested Complex Types
+
 ```sql
 CREATE TABLE orders (
     order_id UUID,
@@ -119,6 +125,7 @@ SELECT items.metadata['priority'] FROM orders;
 ## Key Concepts
 
 ### Type Safety
+
 ```go
 // Go types for DuckDB complex types
 var uuid types.UUID
@@ -128,6 +135,7 @@ var map_ types.Map
 ```
 
 ### Performance Benefits
+
 - **Columnar Storage**: Complex types stored efficiently
 - **Pushdown Optimization**: Operations pushed to storage layer
 - **Vectorized Processing**: Bulk operations on complex types
@@ -136,6 +144,7 @@ var map_ types.Map
 ### Advanced Functions
 
 #### Array Functions
+
 ```sql
 -- Array manipulation
 array_length(arr)          -- Get array length
@@ -145,6 +154,7 @@ array_slice(arr, start, end) -- Extract subarray
 ```
 
 #### Struct Functions
+
 ```sql
 -- Struct operations
 struct_extract(struct, 'field')  -- Extract field value
@@ -152,6 +162,7 @@ struct_pack(a := 1, b := 'text') -- Create struct
 ```
 
 #### Map Functions
+
 ```sql
 -- Map operations
 map_keys(map)              -- Get all keys
@@ -163,7 +174,9 @@ map_extract(map, key)      -- Extract value by key
 ## Use Cases
 
 ### 1. Document Storage
+
 Store semi-structured data like JSON documents:
+
 ```sql
 CREATE TABLE documents (
     id UUID,
@@ -173,7 +186,9 @@ CREATE TABLE documents (
 ```
 
 ### 2. User Profiles
+
 Complex user data with preferences and settings:
+
 ```sql
 CREATE TABLE user_profiles (
     user_id UUID,
@@ -186,7 +201,9 @@ CREATE TABLE user_profiles (
 ```
 
 ### 3. IoT Data
+
 Time-series data with complex nested structures:
+
 ```sql
 CREATE TABLE sensor_data (
     device_id UUID,
@@ -197,7 +214,9 @@ CREATE TABLE sensor_data (
 ```
 
 ### 4. E-commerce
+
 Product catalogs with variable attributes:
+
 ```sql
 CREATE TABLE products (
     product_id UUID,
@@ -214,6 +233,7 @@ CREATE TABLE products (
 ## Advanced Patterns
 
 ### Data Normalization vs Denormalization
+
 Complex types allow controlled denormalization while maintaining query performance:
 
 ```sql
@@ -230,6 +250,7 @@ CREATE TABLE orders (
 ```
 
 ### Schema Evolution
+
 Complex types provide flexibility for evolving schemas:
 
 ```sql

@@ -11,10 +11,10 @@ This document presents three comprehensive storage architectures for a pure-Go D
 DuckDB employs a hybrid storage architecture optimized for analytical workloads:
 
 1. **Single-File Database**: All data stored in a single file partitioned into fixed-size 256KB blocks
-2. **Columnar Row Groups**: Tables split into Row Groups of 120K rows, stored as Column Segments
-3. **Block Management**: Fixed-size blocks enable easy reuse and prevent fragmentation
-4. **MVCC Concurrency**: Custom bulk-optimized Multi-Version Concurrency Control for ACID properties
-5. **Lightweight Compression**: Automatic compression using various algorithms (bit packing, dictionary encoding, FSST)
+1. **Columnar Row Groups**: Tables split into Row Groups of 120K rows, stored as Column Segments
+1. **Block Management**: Fixed-size blocks enable easy reuse and prevent fragmentation
+1. **MVCC Concurrency**: Custom bulk-optimized Multi-Version Concurrency Control for ACID properties
+1. **Lightweight Compression**: Automatic compression using various algorithms (bit packing, dictionary encoding, FSST)
 
 ### Key Design Principles
 
@@ -28,6 +28,7 @@ DuckDB employs a hybrid storage architecture optimized for analytical workloads:
 ### Parquet Libraries
 
 #### segmentio/parquet-go (Recommended)
+
 - **Performance**: High-performance with significant improvements (48-62% faster in benchmarks)
 - **API**: Clean, modern API with struct-tag definitions
 - **Compression**: Supports Snappy, Gzip, Brotli, Zstd, Lz4Raw
@@ -36,23 +37,27 @@ DuckDB employs a hybrid storage architecture optimized for analytical workloads:
 ### CSV Libraries
 
 #### Standard encoding/csv
+
 - **Performance**: Slow on large files due to memory allocations
 - **Features**: Full CSV specification support with error checking
 - **Optimization**: ReuseRecord option reduces allocations
 
 #### High-Performance Alternatives
+
 - **gocsv**: Channel-based streaming with UnmarshalToChan for memory efficiency
 - **Custom parsers**: Using strings.Split or strings.IndexByte (3x faster for simple cases)
 
 ### JSON Libraries
 
 #### jsoniter (json-iterator/go) (Recommended)
+
 - **Performance**: 6x faster than encoding/json for decoding
 - **Streaming**: True streaming support with io.Reader input
 - **Memory**: Efficient buffer pool usage with sync.Pool
 - **Compatibility**: 100% drop-in replacement for encoding/json
 
 #### Standard encoding/json
+
 - **Performance**: Baseline performance, allocation-heavy
 - **Reliability**: Robust error handling and specification compliance
 
@@ -61,6 +66,7 @@ DuckDB employs a hybrid storage architecture optimized for analytical workloads:
 ### Architecture 1: Native Columnar Format with Compression
 
 #### Overview
+
 A pure-Go implementation of DuckDB's storage format with native columnar layout and adaptive compression.
 
 #### Core Components
@@ -130,12 +136,14 @@ type Transaction struct {
 ```
 
 #### Advantages
+
 - **Native Compatibility**: Perfect DuckDB file format compatibility
 - **Optimal Compression**: Adaptive compression selection per column segment
 - **Query Optimization**: Built-in min/max indexes and statistics
 - **ACID Guarantees**: Full transactional support with MVCC
 
 #### Disadvantages
+
 - **Implementation Complexity**: Requires complete block management system
 - **Single Format**: Limited to DuckDB native format only
 - **Memory Overhead**: MVCC requires additional memory for transaction management
@@ -143,6 +151,7 @@ type Transaction struct {
 ### Architecture 2: Multi-Format Abstraction Layer
 
 #### Overview
+
 A pluggable storage system supporting multiple file formats through a unified interface, with format-specific optimizations.
 
 #### Core Components
@@ -261,12 +270,14 @@ type MigrationRule struct {
 ```
 
 #### Advantages
+
 - **Format Flexibility**: Support for Parquet, CSV, JSON, and extensible to new formats
 - **Streaming Efficiency**: Memory-efficient processing of large datasets
 - **Schema Evolution**: Built-in support for schema changes and migrations
 - **Performance Optimization**: Format-specific optimizations and caching
 
 #### Disadvantages
+
 - **Complexity**: Multiple format implementations to maintain
 - **Performance Overhead**: Translation layers may impact performance
 - **Consistency**: Ensuring consistent behavior across formats
@@ -274,6 +285,7 @@ type MigrationRule struct {
 ### Architecture 3: Memory-Mapped File Approach with Lazy Loading
 
 #### Overview
+
 A memory-mapped storage system with lazy loading and demand-paging for optimal memory usage and performance.
 
 #### Core Components
@@ -414,12 +426,14 @@ type ChunkHeader struct {
 ```
 
 #### Advantages
+
 - **Memory Efficiency**: Only loads data when accessed, minimal memory footprint
 - **OS Integration**: Leverages OS virtual memory management
 - **Scalability**: Handles datasets larger than available RAM
 - **Performance**: Fast random access through memory mapping
 
 #### Disadvantages
+
 - **Platform Dependency**: Memory mapping behavior varies by OS
 - **Complexity**: Requires careful management of page faults and buffer pools
 - **Concurrent Access**: Complex synchronization for thread safety
@@ -579,27 +593,31 @@ func (o *StorageAwareOptimizer) OptimizeQuery(plan QueryPlan) QueryPlan {
 For optimal DuckDB compatibility and performance, I recommend a **hybrid architecture** combining elements from all three approaches:
 
 1. **Core Storage**: Architecture 1 (Native Columnar) for DuckDB-native tables
-2. **Import/Export**: Architecture 2 (Multi-Format) for external file format support
-3. **Large Dataset Handling**: Architecture 3 (Memory-Mapped) for datasets exceeding memory
+1. **Import/Export**: Architecture 2 (Multi-Format) for external file format support
+1. **Large Dataset Handling**: Architecture 3 (Memory-Mapped) for datasets exceeding memory
 
 ### Implementation Phases
 
 #### Phase 1: Foundation (Months 1-2)
+
 - Implement basic block management system
 - Develop core compression algorithms (bit packing, dictionary encoding)
 - Create buffer management and caching infrastructure
 
 #### Phase 2: Storage Layer (Months 3-4)
+
 - Implement native columnar storage format
 - Add MVCC transaction support
 - Develop query optimization integration
 
 #### Phase 3: Format Support (Months 5-6)
+
 - Add Parquet import/export using segmentio/parquet-go
 - Implement streaming CSV processing with gocsv
 - Add JSON support using jsoniter
 
 #### Phase 4: Optimization (Months 7-8)
+
 - Implement memory-mapped storage for large datasets
 - Add advanced compression algorithms (FSST, frame-of-reference)
 - Optimize concurrent access patterns

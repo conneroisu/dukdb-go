@@ -44,7 +44,7 @@ func (s *Stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 	if err := s.duckdb.ClearBindings(s.stmt); err != nil {
 		return nil, err
 	}
-	
+
 	// Bind parameters
 	for _, arg := range args {
 		idx := uint64(arg.Ordinal - 1) // Convert to 0-based index
@@ -52,13 +52,13 @@ func (s *Stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 			return nil, fmt.Errorf("failed to bind parameter %d: %w", arg.Ordinal, err)
 		}
 	}
-	
+
 	result, err := s.duckdb.ExecutePrepared(s.stmt)
 	if err != nil {
 		return nil, err
 	}
 	defer result.Close()
-	
+
 	return &Result{
 		rowsAffected: int64(result.RowCount()),
 	}, nil
@@ -75,7 +75,7 @@ func (s *Stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	if err := s.duckdb.ClearBindings(s.stmt); err != nil {
 		return nil, err
 	}
-	
+
 	// Bind parameters
 	for _, arg := range args {
 		idx := uint64(arg.Ordinal - 1) // Convert to 0-based index
@@ -83,12 +83,12 @@ func (s *Stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 			return nil, fmt.Errorf("failed to bind parameter %d: %w", arg.Ordinal, err)
 		}
 	}
-	
+
 	result, err := s.duckdb.ExecutePrepared(s.stmt)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &Rows{
 		duckdb: s.duckdb,
 		result: result,

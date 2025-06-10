@@ -4,14 +4,14 @@ import "unsafe"
 
 // DuckDB C API types represented as Go types
 type (
-	Database    uintptr
-	Connection  uintptr
-	Result      uintptr
+	Database          uintptr
+	Connection        uintptr
+	Result            uintptr
 	PreparedStatement uintptr
-	DataChunk   uintptr
-	Value       uintptr
-	LogicalType uintptr
-	Config      uintptr
+	DataChunk         uintptr
+	Value             uintptr
+	LogicalType       uintptr
+	Config            uintptr
 )
 
 // DuckDB return states

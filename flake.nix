@@ -11,30 +11,30 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        
+
         # Treefmt formatter configuration
         treefmtEval = treefmt-nix.lib.evalModule pkgs {
           projectRootFile = "flake.nix";
           programs = {
             # Nix formatter
             nixpkgs-fmt.enable = true;
-            
+
             # Go formatter
             gofmt.enable = true;
-            
+
             # Markdown formatter  
             mdformat.enable = true;
-            
+
             # YAML formatter
             yamlfmt.enable = true;
-            
+
             # JSON formatter
             prettier = {
               enable = true;
               includes = [ "*.json" ];
             };
           };
-          
+
           settings.global.excludes = [
             "*.sum"
             "*.lock"
@@ -43,10 +43,10 @@
             ".git/**"
           ];
         };
-        
+
         # Go version
         go = pkgs.go_1_23;
-        
+
         # Development tools
         devTools = with pkgs; [
           # Go tools
@@ -58,15 +58,15 @@
           gomodifytags
           gotests
           impl
-          
+
           # DuckDB
           duckdb
-          
+
           # Build tools
           gnumake
           gcc
           pkg-config
-          
+
           # Utilities
           git
           jq
@@ -121,26 +121,26 @@
         packages.default = pkgs.buildGoModule {
           pname = "dukdb-go";
           version = "0.1.0";
-          
+
           src = ./.;
-          
+
           vendorHash = null; # Will be set after running go mod vendor
-          
+
           # Ensure DuckDB is available at runtime
           buildInputs = [ pkgs.duckdb.lib ];
-          
+
           # Disable CGO
           CGO_ENABLED = 0;
-          
+
           # Set library paths
           preBuild = ''
             export LD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$LD_LIBRARY_PATH"
             export DYLD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$DYLD_LIBRARY_PATH"
           '';
-          
+
           # Don't run tests during build (they need DuckDB library)
           doCheck = false;
-          
+
           meta = with pkgs.lib; {
             description = "Pure-Go DuckDB driver";
             homepage = "https://github.com/connerohnesorge/dukdb-go";

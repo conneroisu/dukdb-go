@@ -564,27 +564,27 @@ go test -bench=. -memprofile=mem.prof ./test/benchmark/...
 ### General Guidelines
 
 1. **Use Connection Pooling**: Configure appropriate pool sizes
-2. **Prepare Statements**: Reuse prepared statements for repeated queries
-3. **Batch Operations**: Use transactions for multiple operations
-4. **Stream Results**: Process large result sets incrementally
-5. **Set Timeouts**: Use context for cancellation and timeouts
-6. **Monitor Performance**: Track slow queries and resource usage
+1. **Prepare Statements**: Reuse prepared statements for repeated queries
+1. **Batch Operations**: Use transactions for multiple operations
+1. **Stream Results**: Process large result sets incrementally
+1. **Set Timeouts**: Use context for cancellation and timeouts
+1. **Monitor Performance**: Track slow queries and resource usage
 
 ### DuckDB-Specific Optimizations
 
 1. **Leverage Columnar Storage**: Design queries for column-oriented operations
-2. **Use Appropriate Types**: Choose optimal data types for your use case
-3. **Create Indexes**: Index frequently queried columns
-4. **Partition Data**: Use table partitioning for very large datasets
-5. **Memory Configuration**: Set appropriate memory limits
+1. **Use Appropriate Types**: Choose optimal data types for your use case
+1. **Create Indexes**: Index frequently queried columns
+1. **Partition Data**: Use table partitioning for very large datasets
+1. **Memory Configuration**: Set appropriate memory limits
 
 ### Common Performance Pitfalls
 
 1. **Not Reusing Connections**: Creating new connections frequently
-2. **Ignoring Indexes**: Not creating indexes on query columns
-3. **Large Result Sets**: Loading entire result sets into memory
-4. **Unnecessary Transactions**: Using transactions for single operations
-5. **Poor Query Design**: Not leveraging DuckDB's analytical capabilities
+1. **Ignoring Indexes**: Not creating indexes on query columns
+1. **Large Result Sets**: Loading entire result sets into memory
+1. **Unnecessary Transactions**: Using transactions for single operations
+1. **Poor Query Design**: Not leveraging DuckDB's analytical capabilities
 
 ## Next Steps
 

@@ -29,6 +29,7 @@ duckdb --version
 ```
 
 The Nix environment includes:
+
 - Go 1.21+ with development tools
 - DuckDB shared library
 - golangci-lint for code quality
@@ -42,17 +43,20 @@ If not using Nix, install dependencies manually:
 #### Go Installation
 
 **macOS (Homebrew):**
+
 ```bash
 brew install go
 ```
 
 **Ubuntu/Debian:**
+
 ```bash
 sudo apt update
 sudo apt install golang-go
 ```
 
 **From Source:**
+
 ```bash
 curl -L https://go.dev/dl/go1.21.6.linux-amd64.tar.gz -o go1.21.6.tar.gz
 sudo tar -C /usr/local -xzf go1.21.6.tar.gz
@@ -62,11 +66,13 @@ export PATH=$PATH:/usr/local/go/bin
 #### DuckDB Library Installation
 
 **macOS (Homebrew):**
+
 ```bash
 brew install duckdb
 ```
 
 **Ubuntu/Debian:**
+
 ```bash
 # Method 1: Using the DuckDB repository
 curl -L https://github.com/duckdb/duckdb/releases/download/v0.10.0/libduckdb-linux-amd64.zip -o libduckdb.zip
@@ -79,6 +85,7 @@ sudo apt install libduckdb-dev
 ```
 
 **Building from Source:**
+
 ```bash
 git clone https://github.com/duckdb/duckdb.git
 cd duckdb
@@ -385,6 +392,7 @@ deps:
 ```
 
 Usage:
+
 ```bash
 make build
 make test
@@ -453,6 +461,7 @@ jobs:
 ### Common Problems
 
 **1. Library Not Found**
+
 ```bash
 # Error: libduckdb.so: cannot open shared object file
 export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
@@ -461,6 +470,7 @@ export DUCKDB_LIB_DIR="/usr/local/lib"
 ```
 
 **2. Go Version Too Old**
+
 ```bash
 # Error: purego requires Go 1.21+
 go version
@@ -468,6 +478,7 @@ go version
 ```
 
 **3. Import Errors**
+
 ```bash
 # Error: cannot find package
 go mod tidy
@@ -475,6 +486,7 @@ go mod download
 ```
 
 **4. CGO Disabled**
+
 ```bash
 # Our driver should work with CGO_ENABLED=0
 export CGO_ENABLED=0
@@ -516,9 +528,9 @@ go build -ldflags="-s -w" ./...
 The driver uses several strategies to find the DuckDB library:
 
 1. `DUCKDB_LIB_DIR` environment variable
-2. Standard system library paths (`/usr/local/lib`, `/usr/lib`)
-3. Nix store paths (when using Nix)
-4. macOS Homebrew paths (`/opt/homebrew/lib`)
+1. Standard system library paths (`/usr/local/lib`, `/usr/lib`)
+1. Nix store paths (when using Nix)
+1. macOS Homebrew paths (`/opt/homebrew/lib`)
 
 Configure the optimal path for your environment to improve startup time.
 

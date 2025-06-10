@@ -7,6 +7,7 @@ Common issues and solutions when using the **dukdb-go** pure-Go DuckDB driver.
 ### Library Not Found
 
 **Error:**
+
 ```
 panic: Failed to load DuckDB library: libduckdb.so: cannot open shared object file: No such file or directory
 ```
@@ -14,16 +15,18 @@ panic: Failed to load DuckDB library: libduckdb.so: cannot open shared object fi
 **Solutions:**
 
 1. **Set Library Path:**
+
    ```bash
    export DUCKDB_LIB_DIR="/usr/local/lib"
    export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
    ```
 
-2. **Install DuckDB Library:**
+1. **Install DuckDB Library:**
+
    ```bash
    # macOS
    brew install duckdb
-   
+
    # Ubuntu/Debian
    curl -L https://github.com/duckdb/duckdb/releases/download/v0.10.0/libduckdb-linux-amd64.zip -o libduckdb.zip
    unzip libduckdb.zip
@@ -31,12 +34,14 @@ panic: Failed to load DuckDB library: libduckdb.so: cannot open shared object fi
    sudo ldconfig
    ```
 
-3. **Use Nix (Recommended):**
+1. **Use Nix (Recommended):**
+
    ```bash
    nix develop  # Automatically provides DuckDB library
    ```
 
-4. **Check Library Availability:**
+1. **Check Library Availability:**
+
    ```bash
    go run scripts/test-duckdb-availability.sh
    ```
@@ -44,12 +49,14 @@ panic: Failed to load DuckDB library: libduckdb.so: cannot open shared object fi
 ### Go Version Too Old
 
 **Error:**
+
 ```
 build constraints exclude all Go files in purego package
 ```
 
 **Solution:**
 Upgrade to Go 1.21 or later:
+
 ```bash
 go version  # Check current version
 # Upgrade to Go 1.21+
@@ -58,11 +65,13 @@ go version  # Check current version
 ### Module Download Issues
 
 **Error:**
+
 ```
 go: github.com/connerohnesorge/dukdb-go@v1.0.0: unrecognized import path
 ```
 
 **Solutions:**
+
 ```bash
 # Clear module cache
 go clean -modcache
@@ -79,6 +88,7 @@ go mod tidy
 ### Connection Failures
 
 **Error:**
+
 ```
 Failed to open database: unable to open database file
 ```
@@ -86,23 +96,26 @@ Failed to open database: unable to open database file
 **Solutions:**
 
 1. **Check File Permissions:**
+
    ```bash
    # Ensure directory is writable
    ls -la /path/to/database/
    chmod 755 /path/to/database/
    ```
 
-2. **Verify Database Path:**
+1. **Verify Database Path:**
+
    ```go
    // Use absolute paths
    db, err := sql.Open("duckdb", "/absolute/path/to/database.db")
-   
+
    // Or check current directory
    pwd, _ := os.Getwd()
    fmt.Printf("Current directory: %s\n", pwd)
    ```
 
-3. **Test with In-Memory Database:**
+1. **Test with In-Memory Database:**
+
    ```go
    // This should always work
    db, err := sql.Open("duckdb", ":memory:")
@@ -114,6 +127,7 @@ Failed to open database: unable to open database file
 ### Query Execution Errors
 
 **Error:**
+
 ```
 DuckDB error 2: SQL syntax error near "..."
 ```
@@ -121,20 +135,23 @@ DuckDB error 2: SQL syntax error near "..."
 **Solutions:**
 
 1. **Validate SQL Syntax:**
+
    ```go
    // Test query in DuckDB CLI first
    // duckdb
    // D SELECT * FROM table;
    ```
 
-2. **Check Parameter Binding:**
+1. **Check Parameter Binding:**
+
    ```go
    // Ensure parameter count matches placeholders
    rows, err := db.Query("SELECT * FROM table WHERE col1 = ? AND col2 = ?", 
        val1, val2) // Must provide exactly 2 values
    ```
 
-3. **Escape Special Characters:**
+1. **Escape Special Characters:**
+
    ```go
    // Use double quotes for identifiers with special characters
    _, err := db.Exec(`CREATE TABLE "my-table" (id INTEGER)`)
@@ -143,6 +160,7 @@ DuckDB error 2: SQL syntax error near "..."
 ### Memory Issues
 
 **Error:**
+
 ```
 runtime: out of memory
 ```
@@ -150,23 +168,25 @@ runtime: out of memory
 **Solutions:**
 
 1. **Set Memory Limits:**
+
    ```go
    db, err := sql.Open("duckdb", ":memory:?memory_limit=2GB")
    ```
 
-2. **Process Results Incrementally:**
+1. **Process Results Incrementally:**
+
    ```go
    // Good: Process row by row
    rows, err := db.Query("SELECT * FROM large_table")
    defer rows.Close()
-   
+
    for rows.Next() {
        var data SomeStruct
        rows.Scan(&data.Field1, &data.Field2)
        // Process immediately
        processRecord(data)
    }
-   
+
    // Avoid: Loading all into memory
    var allData []SomeStruct // This can cause OOM
    for rows.Next() {
@@ -176,7 +196,8 @@ runtime: out of memory
    }
    ```
 
-3. **Use Pagination:**
+1. **Use Pagination:**
+
    ```go
    limit := 1000
    for offset := 0; ; offset += limit {
@@ -208,6 +229,7 @@ runtime: out of memory
 ### Slow Query Performance
 
 **Symptoms:**
+
 - Queries taking longer than expected
 - High CPU usage
 - Memory consumption growing
@@ -215,22 +237,24 @@ runtime: out of memory
 **Solutions:**
 
 1. **Create Indexes:**
+
    ```sql
    -- Analyze query plan first
    EXPLAIN SELECT * FROM table WHERE column = 'value';
-   
+
    -- Create appropriate indexes
    CREATE INDEX idx_column ON table (column);
    ```
 
-2. **Optimize Query Structure:**
+1. **Optimize Query Structure:**
+
    ```sql
    -- Good: Filter early
    SELECT t1.*, t2.name 
    FROM table1 t1 
    JOIN table2 t2 ON t1.id = t2.id 
    WHERE t1.date >= '2024-01-01'  -- Filter first
-   
+
    -- Avoid: Late filtering
    SELECT t1.*, t2.name 
    FROM table1 t1 
@@ -238,7 +262,8 @@ runtime: out of memory
    WHERE EXTRACT(year FROM t1.date) = 2024  -- Expensive function
    ```
 
-3. **Use Appropriate Data Types:**
+1. **Use Appropriate Data Types:**
+
    ```sql
    -- Good: Use appropriate sizes
    CREATE TABLE metrics (
@@ -251,6 +276,7 @@ runtime: out of memory
 ### Connection Pool Exhaustion
 
 **Error:**
+
 ```
 sql: connection request timed out
 ```
@@ -258,20 +284,23 @@ sql: connection request timed out
 **Solutions:**
 
 1. **Configure Pool Properly:**
+
    ```go
    db.SetMaxOpenConns(20)
    db.SetMaxIdleConns(10)
    db.SetConnMaxLifetime(time.Hour)
    ```
 
-2. **Monitor Pool Usage:**
+1. **Monitor Pool Usage:**
+
    ```go
    stats := db.Stats()
    fmt.Printf("Pool stats - Open: %d, InUse: %d, Idle: %d\n",
        stats.OpenConnections, stats.InUse, stats.Idle)
    ```
 
-3. **Fix Connection Leaks:**
+1. **Fix Connection Leaks:**
+
    ```go
    // Always close resources
    rows, err := db.Query("SELECT * FROM table")
@@ -279,7 +308,7 @@ sql: connection request timed out
        return err
    }
    defer rows.Close() // Critical!
-   
+
    for rows.Next() {
        // Process rows
    }
@@ -291,9 +320,10 @@ sql: connection request timed out
 **Solutions:**
 
 1. **Monitor Statement Cache:**
+
    ```go
    import "github.com/connerohnesorge/dukdb-go/driver"
-   
+
    stats := driver.GetCacheStats()
    if stats.Size > 1000 {
        // Reduce cache size
@@ -301,14 +331,15 @@ sql: connection request timed out
    }
    ```
 
-2. **Profile Memory Usage:**
+1. **Profile Memory Usage:**
+
    ```go
    import (
        _ "net/http/pprof"
        "net/http"
        "runtime"
    )
-   
+
    func main() {
        // Enable profiling
        go http.ListenAndServe("localhost:6060", nil)
@@ -325,6 +356,7 @@ sql: connection request timed out
 ### Complex Type Parsing Errors
 
 **Error:**
+
 ```
 json: cannot unmarshal string into Go value of type []interface{}
 ```
@@ -332,13 +364,14 @@ json: cannot unmarshal string into Go value of type []interface{}
 **Solutions:**
 
 1. **Handle JSON Properly:**
+
    ```go
    var listJSON string
    err := rows.Scan(&listJSON)
    if err != nil {
        return err
    }
-   
+
    // Parse JSON string
    var items []interface{}
    err = json.Unmarshal([]byte(listJSON), &items)
@@ -349,10 +382,11 @@ json: cannot unmarshal string into Go value of type []interface{}
    }
    ```
 
-2. **Use Type Helpers:**
+1. **Use Type Helpers:**
+
    ```go
    import "github.com/connerohnesorge/dukdb-go/internal/types"
-   
+
    // Use helper functions for complex types
    list, err := types.ParseList(listJSON)
    if err != nil {
@@ -360,7 +394,8 @@ json: cannot unmarshal string into Go value of type []interface{}
    }
    ```
 
-3. **Validate Type Expectations:**
+1. **Validate Type Expectations:**
+
    ```go
    // Check if the column actually contains the expected type
    rows, err := db.Query("SELECT typeof(column_name) FROM table LIMIT 1")
@@ -368,7 +403,7 @@ json: cannot unmarshal string into Go value of type []interface{}
        return err
    }
    defer rows.Close()
-   
+
    var columnType string
    if rows.Next() {
        rows.Scan(&columnType)
@@ -379,6 +414,7 @@ json: cannot unmarshal string into Go value of type []interface{}
 ### Date/Time Parsing Issues
 
 **Error:**
+
 ```
 parsing time "..." as "2006-01-02 15:04:05": cannot parse
 ```
@@ -386,33 +422,35 @@ parsing time "..." as "2006-01-02 15:04:05": cannot parse
 **Solutions:**
 
 1. **Use sql.NullTime for Nullable Dates:**
+
    ```go
    var createdAt sql.NullTime
    err := rows.Scan(&createdAt)
    if err != nil {
        return err
    }
-   
+
    if createdAt.Valid {
        fmt.Printf("Created: %s\n", createdAt.Time.Format(time.RFC3339))
    }
    ```
 
-2. **Handle Different Date Formats:**
+1. **Handle Different Date Formats:**
+
    ```go
    var dateStr string
    err := rows.Scan(&dateStr)
    if err != nil {
        return err
    }
-   
+
    // Try multiple formats
    formats := []string{
        "2006-01-02 15:04:05",
        "2006-01-02T15:04:05Z",
        "2006-01-02",
    }
-   
+
    var parsedTime time.Time
    for _, format := range formats {
        if t, err := time.Parse(format, dateStr); err == nil {
@@ -427,6 +465,7 @@ parsing time "..." as "2006-01-02 15:04:05": cannot parse
 ### Cross-Compilation Problems
 
 **Error:**
+
 ```
 runtime: purego not supported on GOOS/GOARCH
 ```
@@ -434,13 +473,15 @@ runtime: purego not supported on GOOS/GOARCH
 **Solutions:**
 
 1. **Check Platform Support:**
+
    ```bash
    # purego supports specific platforms
    # amd64: windows, linux, darwin, freebsd
    # arm64: linux, darwin
    ```
 
-2. **Build for Supported Platforms:**
+1. **Build for Supported Platforms:**
+
    ```bash
    # Supported combinations
    GOOS=linux GOARCH=amd64 go build
@@ -452,6 +493,7 @@ runtime: purego not supported on GOOS/GOARCH
 ### Static Binary Issues
 
 **Error:**
+
 ```
 error loading shared library
 ```
@@ -459,6 +501,7 @@ error loading shared library
 **Solutions:**
 
 1. **Ensure Library is Available at Runtime:**
+
    ```dockerfile
    # In Docker, install DuckDB library
    FROM alpine:latest
@@ -466,12 +509,13 @@ error loading shared library
    RUN curl -L https://github.com/duckdb/duckdb/releases/download/v0.10.0/libduckdb-linux-amd64.zip -o libduckdb.zip && \
        unzip libduckdb.zip && \
        mv libduckdb.so /usr/local/lib/
-   
+
    COPY myapp .
    CMD ["./myapp"]
    ```
 
-2. **Bundle Library Path:**
+1. **Bundle Library Path:**
+
    ```bash
    # Set runtime library path
    export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
@@ -483,6 +527,7 @@ error loading shared library
 ### Test Database Conflicts
 
 **Error:**
+
 ```
 database is locked
 ```
@@ -490,6 +535,7 @@ database is locked
 **Solutions:**
 
 1. **Use Unique Test Databases:**
+
    ```go
    func TestSomething(t *testing.T) {
        // Use unique database per test
@@ -505,7 +551,8 @@ database is locked
    }
    ```
 
-2. **Use In-Memory Databases:**
+1. **Use In-Memory Databases:**
+
    ```go
    func TestSomething(t *testing.T) {
        // In-memory databases are always isolated
@@ -522,6 +569,7 @@ database is locked
 ### Parallel Test Issues
 
 **Error:**
+
 ```
 tests failing randomly when run in parallel
 ```
@@ -529,6 +577,7 @@ tests failing randomly when run in parallel
 **Solutions:**
 
 1. **Disable Parallel for Database Tests:**
+
    ```go
    func TestDatabaseOperation(t *testing.T) {
        // Disable parallel execution for this test
@@ -539,7 +588,8 @@ tests failing randomly when run in parallel
    }
    ```
 
-2. **Use Test-Specific Setup:**
+1. **Use Test-Specific Setup:**
+
    ```go
    func TestWithIsolation(t *testing.T) {
        t.Parallel() // This is safe with proper isolation
@@ -669,9 +719,9 @@ func main() {
 ### Support Channels
 
 1. **GitHub Issues**: Report bugs and feature requests
-2. **Discussions**: General questions and community support  
-3. **Documentation**: Check the complete documentation
-4. **Examples**: Review working examples in the repository
+1. **Discussions**: General questions and community support
+1. **Documentation**: Check the complete documentation
+1. **Examples**: Review working examples in the repository
 
 ## Next Steps
 

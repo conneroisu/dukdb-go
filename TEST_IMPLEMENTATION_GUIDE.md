@@ -57,6 +57,7 @@ dukdb-go/
 ### 1. Parser Tests
 
 #### Basic Parsing Tests
+
 ```go
 // internal/parser/parser_test.go
 package parser
@@ -160,6 +161,7 @@ func TestParseDuckDBSpecificSyntax(t *testing.T) {
 ```
 
 #### Parser Error Tests
+
 ```go
 func TestParserErrors(t *testing.T) {
     tests := []struct {
@@ -293,6 +295,7 @@ func TestListTypeOperations(t *testing.T) {
 ### 3. SQL Logic Tests
 
 #### Test Runner Implementation
+
 ```go
 // test/sqllogictest/runner.go
 package sqllogictest
@@ -385,6 +388,7 @@ func (r *Runner) runQuery(test TestCase) error {
 ```
 
 #### SQL Logic Test Example
+
 ```sql
 # test/sqllogictest/testdata/types/hugeint.test
 # Test HUGEINT type functionality
@@ -560,6 +564,7 @@ func compareResults(t *testing.T, cgoRows, pureGoRows *sql.Rows) {
 ### 5. Benchmark Tests
 
 #### Micro-benchmarks
+
 ```go
 // benchmark/micro/scan_bench_test.go
 package micro
@@ -616,6 +621,7 @@ func BenchmarkFilteredScan(b *testing.B) {
 ```
 
 #### Query Benchmarks
+
 ```go
 // benchmark/queries/tpch_bench_test.go
 package queries
@@ -782,6 +788,7 @@ func FuzzTypeConversion(f *testing.F) {
 ## Test Utilities
 
 ### Database Setup Helper
+
 ```go
 // test/testutil/db.go
 package testutil
@@ -852,6 +859,7 @@ func (db *TestDB) QueryJSON(query string, args ...interface{}) []map[string]inte
 ```
 
 ### Assertion Helpers
+
 ```go
 // test/testutil/assertions.go
 package testutil
@@ -928,6 +936,7 @@ func ScanAllRows(t *testing.T, rows *sql.Rows) [][]interface{} {
 ## Test Execution Scripts
 
 ### Main Test Runner
+
 ```bash
 #!/bin/bash
 # scripts/test_runner.sh
@@ -970,6 +979,7 @@ echo "Test suite completed!"
 ```
 
 ### Coverage Check
+
 ```go
 // scripts/coverage_check.go
 package main

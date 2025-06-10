@@ -7,7 +7,7 @@ DuckDB supports advanced data types beyond traditional SQL types. This guide cov
 DuckDB's complex types enable rich data modeling and analytics:
 
 - **LIST** - Arrays of values
-- **STRUCT** - Named field records  
+- **STRUCT** - Named field records
 - **MAP** - Key-value pairs
 - **UUID** - Universally unique identifiers
 - **ENUM** - Enumerated values
@@ -531,10 +531,10 @@ SELECT * FROM users WHERE profile = {'name': 'Alice', 'age': 30, 'email': 'alice
 ## Best Practices
 
 1. **Use Appropriate Types**: Choose the right complex type for your use case
-2. **Validate Data**: Ensure complex type data is valid before insertion
-3. **Index Strategically**: Index frequently queried fields within complex types
-4. **Consider Alternatives**: Sometimes normalization is better than complex nesting
-5. **Test Performance**: Complex types can impact query performance
+1. **Validate Data**: Ensure complex type data is valid before insertion
+1. **Index Strategically**: Index frequently queried fields within complex types
+1. **Consider Alternatives**: Sometimes normalization is better than complex nesting
+1. **Test Performance**: Complex types can impact query performance
 
 ## Error Handling
 

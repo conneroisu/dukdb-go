@@ -18,15 +18,15 @@ func NewList(values interface{}) (*List, error) {
 	if v.Kind() != reflect.Slice && v.Kind() != reflect.Array {
 		return nil, fmt.Errorf("expected slice or array, got %T", values)
 	}
-	
+
 	list := &List{
 		values: make([]interface{}, v.Len()),
 	}
-	
+
 	for i := 0; i < v.Len(); i++ {
 		list.values[i] = v.Index(i).Interface()
 	}
-	
+
 	return list, nil
 }
 
@@ -77,7 +77,7 @@ func (l *List) Scan(value interface{}) error {
 		l.values = nil
 		return nil
 	}
-	
+
 	switch v := value.(type) {
 	case []byte:
 		// Try to unmarshal as JSON

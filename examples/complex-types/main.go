@@ -125,11 +125,11 @@ func demonstrateLists(db *sql.DB) {
 		var tagCount int
 		var avgRating float64
 		rows.Scan(&title, &tags, &tagCount, &avgRating)
-		
+
 		// Parse tags JSON
 		var tagList []string
 		json.Unmarshal([]byte(tags), &tagList)
-		
+
 		fmt.Printf("  %s\n", title)
 		fmt.Printf("    Tags (%d): %v\n", tagCount, tagList)
 		fmt.Printf("    Average Rating: %.2f\n", avgRating)
@@ -276,14 +276,14 @@ func demonstrateMaps(db *sql.DB) {
 		var name, specs string
 		var usdPrice sql.NullFloat64
 		rows.Scan(&name, &specs, &usdPrice)
-		
+
 		fmt.Printf("  %s\n", name)
-		
+
 		// Parse specifications
 		var specsMap map[string]interface{}
 		json.Unmarshal([]byte(specs), &specsMap)
 		fmt.Printf("    Specifications: %v\n", specsMap)
-		
+
 		if usdPrice.Valid {
 			fmt.Printf("    USD Price: $%.2f\n", usdPrice.Float64)
 		}
@@ -378,7 +378,7 @@ func demonstrateNestedTypes(db *sql.DB) {
 	}
 
 	fmt.Printf("Project Info (JSON):\n%s\n", projectData)
-	
+
 	// Parse and display
 	var info map[string]interface{}
 	json.Unmarshal([]byte(projectData), &info)

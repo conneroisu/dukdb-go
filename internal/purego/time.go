@@ -30,12 +30,12 @@ func timeToDuckDBTime(t time.Time) int64 {
 	// Get microseconds since midnight
 	hour, min, sec := t.Clock()
 	nanos := t.Nanosecond()
-	
+
 	totalMicros := int64(hour)*3600*1000000 +
 		int64(min)*60*1000000 +
 		int64(sec)*1000000 +
 		int64(nanos)/1000
-		
+
 	return totalMicros
 }
 

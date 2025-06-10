@@ -108,17 +108,17 @@ func BenchmarkInsertBatch(b *testing.B) {
 	defer db.Close()
 
 	batchSizes := []int{10, 100, 1000, 10000}
-	
+
 	for _, batchSize := range batchSizes {
 		b.Run(fmt.Sprintf("BatchSize%d", batchSize), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				tableName := fmt.Sprintf("bench_batch_%d_%d", batchSize, i)
 				db.Exec(fmt.Sprintf("CREATE TABLE %s (id INTEGER, value VARCHAR)", tableName))
-				
+
 				// Build batch insert query
 				query := fmt.Sprintf("INSERT INTO %s VALUES ", tableName)
 				values := make([]interface{}, 0, batchSize*2)
-				
+
 				for j := 0; j < batchSize; j++ {
 					if j > 0 {
 						query += ", "
@@ -126,7 +126,7 @@ func BenchmarkInsertBatch(b *testing.B) {
 					query += "(?, ?)"
 					values = append(values, j, fmt.Sprintf("value_%d", j))
 				}
-				
+
 				_, err := db.Exec(query, values...)
 				if err != nil {
 					b.Fatal(err)
@@ -145,21 +145,21 @@ func BenchmarkSelectRange(b *testing.B) {
 
 	// Setup test data
 	db.Exec("CREATE TABLE bench_select (id INTEGER, value VARCHAR, amount DOUBLE)")
-	
+
 	// Insert test data
 	for i := 0; i < 10000; i++ {
-		db.Exec("INSERT INTO bench_select VALUES (?, ?, ?)", 
+		db.Exec("INSERT INTO bench_select VALUES (?, ?, ?)",
 			i, fmt.Sprintf("value_%d", i), float64(i)*1.5)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rows, err := db.Query("SELECT id, value, amount FROM bench_select WHERE id BETWEEN ? AND ?", 
+		rows, err := db.Query("SELECT id, value, amount FROM bench_select WHERE id BETWEEN ? AND ?",
 			i%1000, (i%1000)+100)
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		// Consume results
 		for rows.Next() {
 			var id int
@@ -180,7 +180,7 @@ func BenchmarkAggregateQuery(b *testing.B) {
 
 	// Setup test data
 	db.Exec("CREATE TABLE bench_agg (category VARCHAR, amount DOUBLE)")
-	
+
 	categories := []string{"A", "B", "C", "D", "E"}
 	for i := 0; i < 10000; i++ {
 		category := categories[i%len(categories)]
@@ -199,7 +199,7 @@ func BenchmarkAggregateQuery(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		// Consume results
 		for rows.Next() {
 			var category string
@@ -221,12 +221,12 @@ func BenchmarkComplexJoin(b *testing.B) {
 	// Setup test data
 	db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR)")
 	db.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, amount DOUBLE)")
-	
+
 	// Insert users
 	for i := 0; i < 1000; i++ {
 		db.Exec("INSERT INTO users VALUES (?, ?)", i, fmt.Sprintf("User_%d", i))
 	}
-	
+
 	// Insert orders
 	for i := 0; i < 5000; i++ {
 		userID := i % 1000
@@ -248,7 +248,7 @@ func BenchmarkComplexJoin(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		// Consume results
 		for rows.Next() {
 			var name string
@@ -275,9 +275,9 @@ func BenchmarkTransactionCommit(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		tx.Exec("INSERT INTO bench_tx VALUES (?, ?)", i, fmt.Sprintf("value_%d", i))
-		
+
 		err = tx.Commit()
 		if err != nil {
 			b.Fatal(err)
@@ -300,9 +300,9 @@ func BenchmarkTransactionRollback(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		tx.Exec("INSERT INTO bench_tx_rollback VALUES (?, ?)", i, fmt.Sprintf("value_%d", i))
-		
+
 		err = tx.Rollback()
 		if err != nil {
 			b.Fatal(err)
@@ -318,7 +318,7 @@ func BenchmarkDateTimeOperations(b *testing.B) {
 	defer db.Close()
 
 	db.Exec("CREATE TABLE bench_datetime (id INTEGER, created_at TIMESTAMP, event_date DATE)")
-	
+
 	now := time.Now()
 	for i := 0; i < 1000; i++ {
 		timestamp := now.Add(time.Duration(i) * time.Hour)
@@ -341,7 +341,7 @@ func BenchmarkDateTimeOperations(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		for rows.Next() {
 			var id, hour, day int
 			var tomorrow time.Time
@@ -366,7 +366,7 @@ func BenchmarkComplexTypes(b *testing.B) {
 			config STRUCT(enabled BOOLEAN, priority INTEGER)
 		)
 	`)
-	
+
 	for i := 0; i < 1000; i++ {
 		db.Exec(`
 			INSERT INTO bench_complex VALUES (
@@ -393,7 +393,7 @@ func BenchmarkComplexTypes(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		
+
 		for rows.Next() {
 			var id, tagCount, priority int
 			var keyValue string
@@ -427,7 +427,7 @@ func BenchmarkConcurrentQueries(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			
+
 			for rows.Next() {
 				var count int
 				rows.Scan(&count)
@@ -452,11 +452,11 @@ func BenchmarkMemoryUsage(b *testing.B) {
 		// Insert large strings
 		largeData := fmt.Sprintf("%0*d", 1000, i) // 1KB string
 		db.Exec("INSERT INTO bench_memory VALUES (?, ?)", i, largeData)
-		
+
 		// Query it back
 		var retrievedData string
 		db.QueryRow("SELECT data FROM bench_memory WHERE id = ?", i).Scan(&retrievedData)
-		
+
 		// Clean up
 		db.Exec("DELETE FROM bench_memory WHERE id = ?", i)
 	}

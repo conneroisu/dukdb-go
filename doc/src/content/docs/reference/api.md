@@ -21,10 +21,12 @@ func sql.Open(driverName, dataSourceName string) (*sql.DB, error)
 ```
 
 **Parameters:**
+
 - `driverName`: Must be `"duckdb"`
 - `dataSourceName`: Connection string (see Connection Strings section)
 
 **Example:**
+
 ```go
 db, err := sql.Open("duckdb", ":memory:")
 db, err := sql.Open("duckdb", "/path/to/database.db")
@@ -53,6 +55,7 @@ file:///path/to/file.db    # File URL format
 | `null_order` | string | `nulls_last` | NULL ordering (`nulls_first`, `nulls_last`) |
 
 **Example:**
+
 ```go
 dsn := ":memory:?memory_limit=2GB&threads=8&temp_directory=/tmp"
 db, err := sql.Open("duckdb", dsn)

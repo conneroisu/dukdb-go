@@ -1,3 +1,4 @@
+//go:build cgo
 // +build cgo
 
 package compatibility
@@ -30,10 +31,10 @@ func TestCompareBasicQueries(t *testing.T) {
 		t.Run(query, func(t *testing.T) {
 			// Test with our driver
 			ourResult := executeQuery(t, "duckdb", query)
-			
+
 			// Test with CGO driver
 			cgoResult := executeQuery(t, "duckdb-cgo", query)
-			
+
 			// Compare results
 			if ourResult != cgoResult {
 				t.Errorf("Results differ:\nOur driver: %s\nCGO driver: %s",
@@ -84,10 +85,10 @@ func TestCompareTableOperations(t *testing.T) {
 		t.Run(op.name, func(t *testing.T) {
 			// Test with our driver
 			ourResult := executeOperations(t, "duckdb", op.queries, op.check)
-			
+
 			// Test with CGO driver
 			cgoResult := executeOperations(t, "duckdb-cgo", op.queries, op.check)
-			
+
 			// Compare results
 			if ourResult != cgoResult {
 				t.Errorf("Results differ:\nOur driver: %s\nCGO driver: %s",

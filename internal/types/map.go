@@ -24,17 +24,17 @@ func NewMap() *Map {
 // NewMapFromGo creates a Map from a Go map
 func NewMapFromGo(m interface{}) (*Map, error) {
 	result := NewMap()
-	
+
 	// Use reflection to handle any map type
 	v := reflect.ValueOf(m)
 	if v.Kind() != reflect.Map {
 		return nil, fmt.Errorf("expected map, got %T", m)
 	}
-	
+
 	for _, key := range v.MapKeys() {
 		result.Set(key.Interface(), v.MapIndex(key).Interface())
 	}
-	
+
 	return result, nil
 }
 
@@ -43,12 +43,12 @@ func (m *Map) Set(key, value interface{}) {
 	if m.entries == nil {
 		m.entries = make(map[interface{}]interface{})
 	}
-	
+
 	// Track key order if new key
 	if _, exists := m.entries[key]; !exists {
 		m.keys = append(m.keys, key)
 	}
-	
+
 	m.entries[key] = value
 }
 
@@ -66,7 +66,7 @@ func (m *Map) Delete(key interface{}) {
 	if m.entries == nil {
 		return
 	}
-	
+
 	if _, exists := m.entries[key]; exists {
 		delete(m.entries, key)
 		// Remove from keys slice
@@ -100,7 +100,7 @@ func (m *Map) ToGoMap() map[string]interface{} {
 	if m == nil || m.entries == nil {
 		return make(map[string]interface{})
 	}
-	
+
 	result := make(map[string]interface{})
 	for k, v := range m.entries {
 		// Convert key to string
@@ -115,7 +115,7 @@ func (m *Map) String() string {
 	if m == nil || m.entries == nil {
 		return "{}"
 	}
-	
+
 	result := "{"
 	for i, key := range m.keys {
 		if i > 0 {
@@ -143,7 +143,7 @@ func (m *Map) Scan(value interface{}) error {
 		m.keys = nil
 		return nil
 	}
-	
+
 	switch v := value.(type) {
 	case []byte:
 		// Try to unmarshal as JSON

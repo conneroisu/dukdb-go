@@ -13,83 +13,98 @@ Convert the existing CGO-based DuckDB Go driver (github.com/marcboeker/go-duckdb
 ## Implementation Approach
 
 ### Phase 1: Purego Wrapper (Weeks 1-2)
+
 Create a purego-based wrapper that maintains API compatibility with the existing CGO driver:
 
 1. **Setup purego interface**
+
    ```go
    // internal/purego/duckdb.go
    package purego
-   
+
    import "github.com/ebitengine/purego"
-   
+
    type DuckDB struct {
        lib    uintptr
        handle uintptr
    }
-   
+
    func Open(path string) (*DuckDB, error) {
        lib, err := purego.Dlopen(getDuckDBLibrary(), purego.RTLD_NOW)
        // Register functions and initialize
    }
    ```
 
-2. **Map essential C functions**
+1. **Map essential C functions**
+
    - duckdb_open/close
-   - duckdb_connect/disconnect  
+   - duckdb_connect/disconnect
    - duckdb_query/prepare
    - Result fetching functions
    - Type conversion functions
 
-3. **Implement database/sql driver interface**
+1. **Implement database/sql driver interface**
+
    - Use purego wrapper internally
    - Maintain exact same API as CGO version
    - Enable compatibility testing
 
 ### Phase 2: Core Go Components (Weeks 3-6)
+
 Begin replacing C dependencies with Go implementations:
 
 1. **Type System** (Week 3)
+
    - Implement DuckDB types in pure Go (HUGEINT, LIST, STRUCT)
    - Create type conversion layer
    - Remove C type dependencies
 
-2. **SQL Parser** (Week 4)
+1. **SQL Parser** (Week 4)
+
    - Generate Goyacc parser for DuckDB SQL
    - Parse to native Go AST
    - Remove C parser dependency
 
-3. **Storage Engine** (Week 5-6)
+1. **Storage Engine** (Week 5-6)
+
    - Implement columnar storage in Go
    - Add Parquet support via parquet-go
    - Create in-memory storage backend
 
 ### Phase 3: Query Execution (Weeks 7-10)
+
 Replace C execution engine:
 
 1. **Volcano Iterator Model**
+
    - Implement basic operators (Scan, Filter, Join)
    - Create execution framework
    - Add parallel execution support
 
-2. **Aggregation Framework**
+1. **Aggregation Framework**
+
    - Implement common aggregates
    - Add GROUP BY support
    - Window function framework
 
-3. **Optimization Layer**
+1. **Optimization Layer**
+
    - Rule-based optimizer
    - Predicate pushdown
    - Join reordering
 
 ### Phase 4: Advanced Features (Weeks 11-12)
+
 Complete remaining functionality:
 
 1. **Complex Types**
+
    - Full LIST/STRUCT operations
    - MAP type support
    - Nested type handling
 
-2. **Analytics Functions**
+1. **Analytics Functions**
+
    - Window functions
    - Statistical aggregates
    - Time series operations
@@ -97,6 +112,7 @@ Complete remaining functionality:
 ## Key Files to Analyze
 
 From CGO driver (github.com/marcboeker/go-duckdb):
+
 - `duckdb.go` - Main driver interface
 - `connector.go` - Connection management
 - `statement.go` - Query execution
@@ -106,16 +122,19 @@ From CGO driver (github.com/marcboeker/go-duckdb):
 ## Testing Strategy
 
 1. **Compatibility Tests**
+
    - Run identical queries on both implementations
    - Compare results byte-for-byte
    - Benchmark performance differences
 
-2. **SQL Logic Tests**
+1. **SQL Logic Tests**
+
    - Port DuckDB's test suite
    - Use .test file format
    - Ensure behavioral compatibility
 
-3. **Performance Benchmarks**
+1. **Performance Benchmarks**
+
    - TPC-H queries
    - Memory usage profiling
    - CGO vs purego vs pure-Go comparison
@@ -123,17 +142,20 @@ From CGO driver (github.com/marcboeker/go-duckdb):
 ## Critical Considerations
 
 ### Purego Limitations
+
 - Manual struct alignment required
 - Float support only on 64-bit platforms
 - Callback limitations on Linux
 - Maximum 2000 callbacks per process
 
 ### Memory Management
+
 - Track C allocations when using purego
 - Implement proper cleanup/defer patterns
 - Consider Go GC pressure with large datasets
 
 ### Platform Support
+
 - Test on Linux, macOS, Windows
 - Verify cross-compilation works
 - Handle missing shared libraries gracefully
@@ -141,18 +163,18 @@ From CGO driver (github.com/marcboeker/go-duckdb):
 ## Success Criteria
 
 1. **Functional**: Pass 95% of DuckDB SQL logic tests
-2. **Compatible**: database/sql interface works identically to CGO version
-3. **Performance**: Within 2x of CGO version for common queries
-4. **Deployment**: Single binary with no C dependencies
-5. **Cross-platform**: Builds for all major OS/arch combinations
+1. **Compatible**: database/sql interface works identically to CGO version
+1. **Performance**: Within 2x of CGO version for common queries
+1. **Deployment**: Single binary with no C dependencies
+1. **Cross-platform**: Builds for all major OS/arch combinations
 
 ## Getting Started
 
 1. Fork the repository
-2. Set up purego wrapper in `internal/purego/`
-3. Create compatibility test harness
-4. Begin incremental replacement of C functions
-5. Track progress in implementation checklist
+1. Set up purego wrapper in `internal/purego/`
+1. Create compatibility test harness
+1. Begin incremental replacement of C functions
+1. Track progress in implementation checklist
 
 ## Resources
 
@@ -164,15 +186,15 @@ From CGO driver (github.com/marcboeker/go-duckdb):
 ## Questions to Address
 
 1. Which DuckDB version to target initially?
-2. How to handle DuckDB extensions?
-3. Minimum Go version requirement?
-4. License compatibility (GPL v3.0 implications)?
+1. How to handle DuckDB extensions?
+1. Minimum Go version requirement?
+1. License compatibility (GPL v3.0 implications)?
 
 Begin by creating the purego wrapper and establishing the test harness for compatibility validation.
 
----
+______________________________________________________________________
 
-## Original Research: Go SQL Database Driver Implementation Analysis 
+## Original Research: Go SQL Database Driver Implementation Analysis
 
 # Comprehensive Go SQL Database Drivers by Implementation Type
 
@@ -204,27 +226,33 @@ Begin by creating the purego wrapper and establishing the test harness for compa
 ## Key Insights
 
 ### Pure-Go Dominance
+
 The Go ecosystem has matured significantly, with **pure-Go drivers now available for most major databases**. This trend reflects the community's preference for deployment simplicity and cross-platform compatibility.
 
 ### Databases with Only Pure-Go Options
+
 - PostgreSQL, MySQL/MariaDB, Firebird, SAP HANA, Google Cloud Spanner, CockroachDB, YugabyteDB, ClickHouse, Snowflake, Exasol, Databricks, Vertica, and Trino all have mature pure-Go implementations without requiring CGO alternatives.
 
 ### Databases Requiring CGO
+
 - **IBM DB2** and **Teradata** only have CGO-based drivers due to proprietary protocols
 - **DuckDB** currently only offers a CGO driver
 - **Apache Derby/JavaDB** has no Go driver (Java-based database)
 
 ### PostgreSQL Wire Protocol Success
+
 PostgreSQL's open wire protocol has enabled pure-Go implementations for PostgreSQL itself and all PostgreSQL-compatible databases (CockroachDB, YugabyteDB YSQL, Amazon Redshift).
 
 ### Deployment Considerations
+
 - **Pure-Go advantages**: Static binary deployment, no external dependencies, cross-compilation support, better debugging
 - **CGO requirements**: Database client libraries at runtime, platform-specific builds, potential licensing complexity
 
 ### Recommendations
+
 1. **For new projects**: Always prefer pure-Go drivers when available
-2. **For PostgreSQL-family databases**: Use pgx (actively maintained) over lib/pq (maintenance mode)
-3. **For MySQL**: go-sql-driver/mysql is the de facto standard
-4. **For SQLite**: Choose based on deployment needs - mattn/go-sqlite3 for features, pure-Go alternatives for simplicity
-5. **For Oracle**: go-ora for pure-Go needs, godror for maximum compatibility
-6. **For SQL Server**: Use the official Microsoft driver (pure-Go)
+1. **For PostgreSQL-family databases**: Use pgx (actively maintained) over lib/pq (maintenance mode)
+1. **For MySQL**: go-sql-driver/mysql is the de facto standard
+1. **For SQLite**: Choose based on deployment needs - mattn/go-sqlite3 for features, pure-Go alternatives for simplicity
+1. **For Oracle**: go-ora for pure-Go needs, godror for maximum compatibility
+1. **For SQL Server**: Use the official Microsoft driver (pure-Go)

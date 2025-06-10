@@ -29,15 +29,15 @@ func DefaultPoolConfig() *PoolConfig {
 
 // ConnectionPool manages a pool of DuckDB connections
 type ConnectionPool struct {
-	duckdb     *purego.DuckDB
-	dbPath     string
-	config     *PoolConfig
-	
-	mu         sync.RWMutex
-	conns      []*pooledConn
-	freeConns  []*pooledConn
-	connCount  int
-	
+	duckdb *purego.DuckDB
+	dbPath string
+	config *PoolConfig
+
+	mu        sync.RWMutex
+	conns     []*pooledConn
+	freeConns []*pooledConn
+	connCount int
+
 	cleanupTimer *time.Timer
 	closed       bool
 }
@@ -54,18 +54,18 @@ func NewConnectionPool(duckdb *purego.DuckDB, dbPath string, config *PoolConfig)
 	if config == nil {
 		config = DefaultPoolConfig()
 	}
-	
+
 	pool := &ConnectionPool{
-		duckdb:   duckdb,
-		dbPath:   dbPath,
-		config:   config,
-		conns:    make([]*pooledConn, 0),
+		duckdb:    duckdb,
+		dbPath:    dbPath,
+		config:    config,
+		conns:     make([]*pooledConn, 0),
 		freeConns: make([]*pooledConn, 0),
 	}
-	
+
 	// Start cleanup routine
 	pool.scheduleCleanup()
-	
+
 	return pool
 }
 
@@ -73,11 +73,11 @@ func NewConnectionPool(duckdb *purego.DuckDB, dbPath string, config *PoolConfig)
 func (p *ConnectionPool) Get(ctx context.Context) (*Conn, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.closed {
 		return nil, fmt.Errorf("connection pool is closed")
 	}
-	
+
 	// Try to get a free connection
 	if len(p.freeConns) > 0 {
 		pc := p.freeConns[len(p.freeConns)-1]
@@ -86,26 +86,26 @@ func (p *ConnectionPool) Get(ctx context.Context) (*Conn, error) {
 		pc.lastUsed = time.Now()
 		return pc.conn, nil
 	}
-	
+
 	// Check if we can create a new connection
 	if p.connCount < p.config.MaxOpenConns {
 		conn, err := p.createConnection()
 		if err != nil {
 			return nil, err
 		}
-		
+
 		pc := &pooledConn{
 			conn:      conn,
 			createdAt: time.Now(),
 			lastUsed:  time.Now(),
 			inUse:     true,
 		}
-		
+
 		p.conns = append(p.conns, pc)
 		p.connCount++
 		return conn, nil
 	}
-	
+
 	// Wait for a connection to become available
 	// For now, return error - could implement waiting logic
 	return nil, fmt.Errorf("connection pool exhausted")
@@ -115,18 +115,18 @@ func (p *ConnectionPool) Get(ctx context.Context) (*Conn, error) {
 func (p *ConnectionPool) Put(conn *Conn) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.closed {
 		conn.Close()
 		return
 	}
-	
+
 	// Find the pooled connection
 	for _, pc := range p.conns {
 		if pc.conn == conn {
 			pc.inUse = false
 			pc.lastUsed = time.Now()
-			
+
 			// Add to free connections if we have space
 			if len(p.freeConns) < p.config.MaxIdleConns {
 				p.freeConns = append(p.freeConns, pc)
@@ -143,25 +143,25 @@ func (p *ConnectionPool) Put(conn *Conn) {
 func (p *ConnectionPool) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.closed {
 		return nil
 	}
-	
+
 	p.closed = true
-	
+
 	if p.cleanupTimer != nil {
 		p.cleanupTimer.Stop()
 	}
-	
+
 	for _, pc := range p.conns {
 		pc.conn.Close()
 	}
-	
+
 	p.conns = nil
 	p.freeConns = nil
 	p.connCount = 0
-	
+
 	return nil
 }
 
@@ -169,30 +169,30 @@ func (p *ConnectionPool) Close() error {
 func (p *ConnectionPool) Stats() PoolStats {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	inUse := 0
 	for _, pc := range p.conns {
 		if pc.inUse {
 			inUse++
 		}
 	}
-	
+
 	return PoolStats{
 		OpenConnections: p.connCount,
-		InUse:          inUse,
-		Idle:           len(p.freeConns),
-		MaxOpenConns:   p.config.MaxOpenConns,
-		MaxIdleConns:   p.config.MaxIdleConns,
+		InUse:           inUse,
+		Idle:            len(p.freeConns),
+		MaxOpenConns:    p.config.MaxOpenConns,
+		MaxIdleConns:    p.config.MaxIdleConns,
 	}
 }
 
 // PoolStats holds pool statistics
 type PoolStats struct {
 	OpenConnections int
-	InUse          int
-	Idle           int
-	MaxOpenConns   int
-	MaxIdleConns   int
+	InUse           int
+	Idle            int
+	MaxOpenConns    int
+	MaxIdleConns    int
 }
 
 func (p *ConnectionPool) createConnection() (*Conn, error) {
@@ -201,14 +201,14 @@ func (p *ConnectionPool) createConnection() (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Create connection
 	conn, err := p.duckdb.Connect(db)
 	if err != nil {
 		p.duckdb.CloseDatabase(db)
 		return nil, err
 	}
-	
+
 	return &Conn{
 		duckdb: p.duckdb,
 		db:     db,
@@ -218,7 +218,7 @@ func (p *ConnectionPool) createConnection() (*Conn, error) {
 
 func (p *ConnectionPool) removeConnection(pc *pooledConn) {
 	pc.conn.Close()
-	
+
 	// Remove from conns slice
 	for i, c := range p.conns {
 		if c == pc {
@@ -226,7 +226,7 @@ func (p *ConnectionPool) removeConnection(pc *pooledConn) {
 			break
 		}
 	}
-	
+
 	// Remove from freeConns slice
 	for i, c := range p.freeConns {
 		if c == pc {
@@ -234,7 +234,7 @@ func (p *ConnectionPool) removeConnection(pc *pooledConn) {
 			break
 		}
 	}
-	
+
 	p.connCount--
 }
 
@@ -242,35 +242,35 @@ func (p *ConnectionPool) scheduleCleanup() {
 	if p.config.ConnMaxIdleTime <= 0 && p.config.ConnMaxLifetime <= 0 {
 		return
 	}
-	
+
 	interval := p.config.ConnMaxIdleTime
 	if interval <= 0 || (p.config.ConnMaxLifetime > 0 && p.config.ConnMaxLifetime < interval) {
 		interval = p.config.ConnMaxLifetime
 	}
-	
+
 	if interval <= 0 {
 		interval = time.Minute
 	} else {
 		interval = interval / 2 // Clean up twice as often as the timeout
 	}
-	
+
 	p.cleanupTimer = time.AfterFunc(interval, p.cleanup)
 }
 
 func (p *ConnectionPool) cleanup() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.closed {
 		return
 	}
-	
+
 	now := time.Now()
-	
+
 	// Remove expired connections
 	for i := len(p.freeConns) - 1; i >= 0; i-- {
 		pc := p.freeConns[i]
-		
+
 		expired := false
 		if p.config.ConnMaxIdleTime > 0 && now.Sub(pc.lastUsed) > p.config.ConnMaxIdleTime {
 			expired = true
@@ -278,12 +278,12 @@ func (p *ConnectionPool) cleanup() {
 		if p.config.ConnMaxLifetime > 0 && now.Sub(pc.createdAt) > p.config.ConnMaxLifetime {
 			expired = true
 		}
-		
+
 		if expired {
 			p.removeConnection(pc)
 		}
 	}
-	
+
 	// Schedule next cleanup
 	p.scheduleCleanup()
 }

@@ -9,11 +9,13 @@ Comprehensive documentation for the **dukdb-go** pure-Go DuckDB driver.
 This documentation site provides complete coverage of the dukdb-go driver:
 
 ### Getting Started
+
 - **Introduction** - Overview and key features
 - **Installation & Setup** - Getting the driver installed and running
 - **Build Process** - Building from source and deployment
 
 ### User Guides
+
 - **Working with Complex Types** - LIST, STRUCT, MAP, UUID types
 - **Performance Optimization** - Connection pooling, caching, optimization tips
 - **Migration from CGO** - Step-by-step migration from the CGO driver
@@ -21,6 +23,7 @@ This documentation site provides complete coverage of the dukdb-go driver:
 - **Troubleshooting** - Common issues and solutions
 
 ### API Reference
+
 - **Driver API** - Complete API documentation
 
 ## Local Development
@@ -73,6 +76,7 @@ src/content/docs/
 ## Features
 
 ### Documentation Features
+
 - **Comprehensive Coverage** - All driver features documented
 - **Code Examples** - Working examples for every feature
 - **Performance Guides** - Optimization and best practices
@@ -82,6 +86,7 @@ src/content/docs/
 - **Dark/Light Mode** - Automatic theme switching
 
 ### Technical Features
+
 - Built with [Astro](https://astro.build/) and [Starlight](https://starlight.astro.build/)
 - Markdown/MDX content with component support
 - Syntax highlighting for Go, SQL, and other languages
@@ -94,9 +99,9 @@ src/content/docs/
 Documentation improvements are welcome! To contribute:
 
 1. Fork the repository
-2. Make your changes in the `doc/src/content/docs/` directory
-3. Test locally with `npm run dev`
-4. Submit a pull request
+1. Make your changes in the `doc/src/content/docs/` directory
+1. Test locally with `npm run dev`
+1. Submit a pull request
 
 ### Writing Guidelines
 

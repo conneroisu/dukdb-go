@@ -11,18 +11,21 @@ This document provides a comprehensive analysis of three SQL parser architectura
 DuckDB uses a **modified PostgreSQL parser** through the `libpg_query` library with the following characteristics:
 
 **Parser Structure:**
+
 - Located in `src/parser/` with modular organization
 - Uses `third_party/libpg_query` containing modified PostgreSQL grammar
 - Generates parser using Python scripts (`generate_grammar.py`, `generate_flex.py`)
 - Grammar files are in Yacc/Bison format (`.y` files) with Flex lexer (`.l` files)
 
 **Key Components:**
+
 1. **Lexer (scan.l)** - Tokenizes SQL input
-2. **Grammar (sql_statement.y)** - Defines SQL syntax rules
-3. **Transformer** - Converts parse tree to DuckDB AST
-4. **AST Nodes** - `SQLStatement`, `QueryNode`, `TableRef`, `ParsedExpression`
+1. **Grammar (sql_statement.y)** - Defines SQL syntax rules
+1. **Transformer** - Converts parse tree to DuckDB AST
+1. **AST Nodes** - `SQLStatement`, `QueryNode`, `TableRef`, `ParsedExpression`
 
 **Parser Characteristics:**
+
 - **Catalog-agnostic** - No type checking or table validation during parsing
 - **Modular design** - Separate handling for constraints, expressions, statements
 - **PostgreSQL heritage** - Inherits robust SQL parsing capabilities
@@ -33,21 +36,25 @@ DuckDB uses a **modified PostgreSQL parser** through the `libpg_query` library w
 DuckDB supports several analytical SQL extensions that must be handled:
 
 1. **Advanced Aggregation Functions**
+
    - Window functions with complex frames
    - Statistical functions (percentile_cont, etc.)
    - Array aggregation functions
 
-2. **Data Type Extensions**
+1. **Data Type Extensions**
+
    - ARRAY, MAP, STRUCT composite types
    - JSON type with path expressions
    - Interval arithmetic
 
-3. **Analytical Query Features**
+1. **Analytical Query Features**
+
    - PIVOT/UNPIVOT operations
    - QUALIFY clause for window function filtering
    - EXCLUDE clause in window functions
 
-4. **File Format Integration**
+1. **File Format Integration**
+
    - Parquet file reading with schema inference
    - CSV with type inference
    - JSON lines format support
@@ -66,15 +73,16 @@ DuckDB supports several analytical SQL extensions that must be handled:
 ### Key Insights from Analysis
 
 1. **Yacc/Goyacc dominance** - Most successful Go SQL parsers use generated parsers
-2. **MySQL compatibility focus** - Limited PostgreSQL/DuckDB dialect support
-3. **Modularity challenges** - Hand-written parsers struggle with SQL complexity
-4. **Performance characteristics** - Generated parsers offer better performance for complex grammars
+1. **MySQL compatibility focus** - Limited PostgreSQL/DuckDB dialect support
+1. **Modularity challenges** - Hand-written parsers struggle with SQL complexity
+1. **Performance characteristics** - Generated parsers offer better performance for complex grammars
 
 ## 3. Architectural Approach Options
 
 ### Option 1: Hand-Written Recursive Descent Parser
 
 **Architecture:**
+
 ```go
 type Parser struct {
     lexer   *Lexer
@@ -89,11 +97,13 @@ func (p *Parser) parseTableReference() (TableRef, error)
 ```
 
 **Implementation Strategy:**
+
 - Top-down parsing with recursive function calls
 - Direct mapping of grammar rules to Go functions
 - Manual AST construction and error handling
 
 **DuckDB Compatibility Analysis:**
+
 - ✅ **Pros:** Easy to add DuckDB-specific syntax extensions
 - ✅ **Pros:** Fine-grained control over error messages
 - ✅ **Pros:** No external grammar dependencies
@@ -102,16 +112,19 @@ func (p *Parser) parseTableReference() (TableRef, error)
 - ❌ **Cons:** Operator precedence handling becomes complex
 
 **Performance Characteristics:**
+
 - **Parsing Speed:** Moderate (recursive function calls overhead)
 - **Memory Usage:** Higher (call stack depth for complex queries)
 - **Startup Time:** Fast (no parser generation step)
 
 **Maintenance Overhead:**
+
 - **Grammar Changes:** High - manual code updates required
 - **Testing:** High - extensive testing needed for each grammar rule
 - **Debugging:** Moderate - direct code debugging possible
 
 **Extension Capabilities:**
+
 - **New SQL Features:** Easy to add with new parsing functions
 - **Dialect Variations:** Requires separate parsing branches
 - **Error Recovery:** Can be sophisticated with custom logic
@@ -121,6 +134,7 @@ func (p *Parser) parseTableReference() (TableRef, error)
 ### Option 2: Generated Parser (Goyacc/ANTLR)
 
 **Architecture:**
+
 ```go
 //go:generate goyacc -o parser.go -p "duckdb" grammar.y
 
@@ -138,11 +152,13 @@ select_statement: SELECT select_list FROM table_reference opt_where
 ```
 
 **Implementation Strategy:**
+
 - Grammar-driven parser generation
 - Yacc/Bison grammar file with embedded Go actions
 - Automatic AST construction with custom semantic actions
 
 **DuckDB Compatibility Analysis:**
+
 - ✅ **Pros:** Can handle complex SQL grammar completely
 - ✅ **Pros:** Proven approach (matches DuckDB's current strategy)
 - ✅ **Pros:** Handles operator precedence automatically
@@ -151,16 +167,19 @@ select_statement: SELECT select_list FROM table_reference opt_where
 - ❌ **Cons:** Debugging generated code is difficult
 
 **Performance Characteristics:**
+
 - **Parsing Speed:** Excellent (LR parser efficiency)
 - **Memory Usage:** Low (table-driven parsing)
 - **Startup Time:** Moderate (parse table initialization)
 
 **Maintenance Overhead:**
+
 - **Grammar Changes:** Low - modify grammar file and regenerate
 - **Testing:** Moderate - test grammar rules systematically
 - **Debugging:** High - generated code debugging challenges
 
 **Extension Capabilities:**
+
 - **New SQL Features:** Add grammar rules and semantic actions
 - **Dialect Variations:** Conditional grammar rules possible
 - **Error Recovery:** Built-in with custom error actions
@@ -170,6 +189,7 @@ select_statement: SELECT select_list FROM table_reference opt_where
 ### Option 3: Hybrid Tokenizer + Parser Combinator
 
 **Architecture:**
+
 ```go
 type ParserCombinator func(TokenStream) (ASTNode, TokenStream, error)
 
@@ -190,11 +210,13 @@ var selectParser = Sequence(
 ```
 
 **Implementation Strategy:**
+
 - Functional parser composition using combinators
 - Separate tokenization and parsing phases
 - Composable parsing functions for complex constructs
 
 **DuckDB Compatibility Analysis:**
+
 - ✅ **Pros:** Highly composable for complex DuckDB syntax
 - ✅ **Pros:** Easy to test individual parsing components
 - ✅ **Pros:** Functional approach maps well to SQL structure
@@ -203,16 +225,19 @@ var selectParser = Sequence(
 - ❌ **Cons:** Learning curve for parser combinator concepts
 
 **Performance Characteristics:**
+
 - **Parsing Speed:** Good (backtracking can be expensive)
 - **Memory Usage:** Moderate (closure allocations)
 - **Startup Time:** Fast (no generation phase)
 
 **Maintenance Overhead:**
+
 - **Grammar Changes:** Low - modify combinator composition
 - **Testing:** Low - test individual combinators easily
 - **Debugging:** Moderate - functional composition debugging
 
 **Extension Capabilities:**
+
 - **New SQL Features:** Excellent - compose new parsing logic
 - **Dialect Variations:** Excellent - conditional combinator selection
 - **Error Recovery:** Good - custom error handling combinators
@@ -230,21 +255,25 @@ Based on comprehensive analysis, the **Generated Parser using Goyacc** approach 
 #### Technical Justification
 
 1. **DuckDB Compatibility Alignment**
+
    - Mirrors DuckDB's current Yacc-based approach
    - Can handle the full complexity of DuckDB's SQL dialect
    - Proven capability with PostgreSQL-derived grammar
 
-2. **Performance Superiority**
+1. **Performance Superiority**
+
    - LR(1) parsing provides optimal performance for complex SQL
    - Table-driven parsing minimizes runtime overhead
    - Excellent memory efficiency for large queries
 
-3. **Maintenance Efficiency**
+1. **Maintenance Efficiency**
+
    - Grammar modifications are centralized in `.y` files
    - Automatic code generation reduces manual maintenance
    - Systematic testing approach through grammar validation
 
-4. **Extension Capability**
+1. **Extension Capability**
+
    - Grammar rules can be added incrementally for new features
    - Semantic actions provide flexibility for AST construction
    - Conditional compilation possible for dialect variations
@@ -308,6 +337,7 @@ select_statement:
 #### DuckDB-Specific Extensions Integration
 
 **1. Advanced Data Types**
+
 ```yacc
 data_type:
     simple_type { $$ = $1 }
@@ -326,6 +356,7 @@ struct_type:
 ```
 
 **2. Window Functions and Analytics**
+
 ```yacc
 window_function:
     function_name '(' opt_expression_list ')' OVER window_specification
@@ -349,6 +380,7 @@ window_specification:
 ```
 
 **3. PIVOT/UNPIVOT Operations**
+
 ```yacc
 table_reference:
     simple_table_reference { $$ = $1 }
@@ -370,6 +402,7 @@ pivot_table_reference:
 #### Lexical Analysis Strategy
 
 **Enhanced Lexer for DuckDB Extensions**
+
 ```go
 type DuckDBLexer struct {
     input    string
@@ -405,6 +438,7 @@ func NewDuckDBLexer(input string) *DuckDBLexer {
 #### Error Handling and Recovery
 
 **Comprehensive Error Reporting**
+
 ```go
 type ParseError struct {
     Position Location
@@ -453,45 +487,57 @@ func parseExpression(tokens TokenStream) (ast.Expression, error) {
 ## 5. Implementation Roadmap
 
 ### Phase 1: Core Infrastructure (Weeks 1-2)
+
 1. **Lexer Implementation**
+
    - Basic tokenization for SQL keywords and operators
    - DuckDB-specific keyword recognition
    - String literal and numeric literal handling
 
-2. **Basic Grammar Foundation**
+1. **Basic Grammar Foundation**
+
    - Simple SELECT statements
    - Basic expressions and operators
    - Table references and joins
 
 ### Phase 2: Standard SQL Support (Weeks 3-6)
+
 1. **DML Statements**
+
    - INSERT, UPDATE, DELETE statements
    - Subqueries and CTEs
    - UNION, INTERSECT, EXCEPT operations
 
-2. **DDL Statements**
+1. **DDL Statements**
+
    - CREATE/DROP TABLE
    - ALTER TABLE operations
    - Index creation and management
 
 ### Phase 3: DuckDB Extensions (Weeks 7-10)
+
 1. **Advanced Data Types**
+
    - ARRAY, MAP, STRUCT types
    - JSON type with path expressions
    - Composite type operations
 
-2. **Analytical Features**
+1. **Analytical Features**
+
    - Window functions with all frame types
    - PIVOT/UNPIVOT operations
    - QUALIFY clause support
 
 ### Phase 4: Performance and Polish (Weeks 11-12)
+
 1. **Optimization**
+
    - Parser performance tuning
    - Memory usage optimization
    - Error message improvement
 
-2. **Testing and Validation**
+1. **Testing and Validation**
+
    - Comprehensive test suite
    - DuckDB compatibility testing
    - Performance benchmarking
