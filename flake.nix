@@ -22,15 +22,6 @@
             # Go formatter
             gofmt.enable = true;
             
-            # Go line length formatter
-            golines = {
-              enable = true;
-              settings = {
-                max-len = 100;
-                base-formatter = "gofmt";
-              };
-            };
-            
             # Markdown formatter  
             mdformat.enable = true;
             
