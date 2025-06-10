@@ -1,0 +1,15 @@
+{
+    "permissions": {
+        "allow": ["Bash(nix develop:*)", "Bash(npm run test:*)"],
+        "deny": ["Bash(curl:*)"]
+    },
+    "env": {
+        "CLAUDE_CODE_ENABLE_TELEMETRY": "0"
+    },
+    "mcpServers": {
+        "playwright": {
+            "command": "npx",
+            "args": ["@playwright/mcp@latest", "--vision"]
+        }
+    }
+}
