@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"database/sql/driver"
-	"fmt"
 	"time"
 
 	"github.com/connerohnesorge/dukdb-go/internal/purego"

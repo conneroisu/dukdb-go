@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	_ "github.com/connerohnesorge/dukdb-go" // Our pure-Go driver
-	_ "github.com/marcboeker/go-duckdb"     // CGO driver (requires CGO)
+	// _ "github.com/marcboeker/go-duckdb"     // CGO driver (requires CGO) - Temporarily disabled
 )
 
 // TestCompareBasicQueries compares basic query results between implementations

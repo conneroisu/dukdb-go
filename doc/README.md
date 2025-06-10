@@ -1,54 +1,140 @@
-# Starlight Starter Kit: Basics
+# dukdb-go Documentation
 
 [![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)
 
+Comprehensive documentation for the **dukdb-go** pure-Go DuckDB driver.
+
+## Documentation Structure
+
+This documentation site provides complete coverage of the dukdb-go driver:
+
+### Getting Started
+- **Introduction** - Overview and key features
+- **Installation & Setup** - Getting the driver installed and running
+- **Build Process** - Building from source and deployment
+
+### User Guides
+- **Working with Complex Types** - LIST, STRUCT, MAP, UUID types
+- **Performance Optimization** - Connection pooling, caching, optimization tips
+- **Migration from CGO** - Step-by-step migration from the CGO driver
+- **Code Examples** - Complete working examples for all features
+- **Troubleshooting** - Common issues and solutions
+
+### API Reference
+- **Driver API** - Complete API documentation
+
+## Local Development
+
+### Prerequisites
+
+- Node.js 18+ and npm
+- Or use Nix: `nix develop`
+
+### Commands
+
+All commands are run from the `doc/` directory:
+
+| Command | Action |
+|---------|--------|
+| `npm install` | Install dependencies |
+| `npm run dev` | Start local dev server at `localhost:4321` |
+| `npm run build` | Build production site to `./dist/` |
+| `npm run preview` | Preview build locally |
+
+### Using Nix
+
+The documentation includes a Nix flake for reproducible development:
+
+```bash
+# Enter development environment
+nix develop
+
+# Start development server
+npm run dev
 ```
-npm create astro@latest -- --template starlight
-```
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/withastro/starlight/tree/main/examples/basics)
-[![Open with CodeSandbox](https://assets.codesandbox.io/github/button-edit-lime.svg)](https://codesandbox.io/p/sandbox/github/withastro/starlight/tree/main/examples/basics)
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/withastro/starlight&create_from_path=examples/basics)
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fwithastro%2Fstarlight%2Ftree%2Fmain%2Fexamples%2Fbasics&project-name=my-starlight-docs&repository-name=my-starlight-docs)
-
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
-
-## 🚀 Project Structure
-
-Inside of your Astro + Starlight project, you'll see the following folders and files:
+## Content Organization
 
 ```
-.
-├── public/
-├── src/
-│   ├── assets/
-│   ├── content/
-│   │   ├── docs/
-│   └── content.config.ts
-├── astro.config.mjs
-├── package.json
-└── tsconfig.json
+src/content/docs/
+├── index.mdx                    # Homepage
+├── guides/
+│   ├── getting-started.md       # Installation and basic usage
+│   ├── build-process.md         # Build instructions and deployment
+│   ├── complex-types.md         # Advanced DuckDB types
+│   ├── performance.md           # Optimization techniques
+│   ├── migration.md             # CGO to pure-Go migration
+│   ├── examples.md              # Complete code examples
+│   └── troubleshooting.md       # Common issues and solutions
+└── reference/
+    └── api.md                   # Complete API reference
 ```
 
-Starlight looks for `.md` or `.mdx` files in the `src/content/docs/` directory. Each file is exposed as a route based on its file name.
+## Features
 
-Images can be added to `src/assets/` and embedded in Markdown with a relative link.
+### Documentation Features
+- **Comprehensive Coverage** - All driver features documented
+- **Code Examples** - Working examples for every feature
+- **Performance Guides** - Optimization and best practices
+- **Migration Support** - Detailed migration from CGO driver
+- **Search** - Full-text search across all documentation
+- **Mobile Responsive** - Optimized for all devices
+- **Dark/Light Mode** - Automatic theme switching
 
-Static assets, like favicons, can be placed in the `public/` directory.
+### Technical Features
+- Built with [Astro](https://astro.build/) and [Starlight](https://starlight.astro.build/)
+- Markdown/MDX content with component support
+- Syntax highlighting for Go, SQL, and other languages
+- Automatic navigation generation
+- SEO optimized
+- Fast static site generation
 
-## 🧞 Commands
+## Contributing
 
-All commands are run from the root of the project, from a terminal:
+Documentation improvements are welcome! To contribute:
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
+1. Fork the repository
+2. Make your changes in the `doc/src/content/docs/` directory
+3. Test locally with `npm run dev`
+4. Submit a pull request
 
-## 👀 Want to learn more?
+### Writing Guidelines
 
-Check out [Starlight’s docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).
+- Use clear, concise language
+- Include working code examples
+- Add proper syntax highlighting
+- Test all code examples
+- Follow the existing structure and style
+
+### Content Standards
+
+- **Getting Started**: Should get users running quickly
+- **Guides**: Step-by-step instructions with examples
+- **Reference**: Complete API documentation with all parameters
+- **Examples**: Full, working programs that demonstrate features
+
+## Deployment
+
+The documentation is automatically deployed when changes are merged to the main branch.
+
+### Manual Deployment
+
+```bash
+# Build for production
+npm run build
+
+# Preview the build
+npm run preview
+
+# Deploy to your hosting platform
+```
+
+## Links
+
+- **Main Repository**: [github.com/connerohnesorge/dukdb-go](https://github.com/connerohnesorge/dukdb-go)
+- **Issues**: [Report documentation issues](https://github.com/connerohnesorge/dukdb-go/issues)
+- **DuckDB**: [Official DuckDB documentation](https://duckdb.org/docs/)
+
+## License
+
+This documentation is part of the dukdb-go project and follows the same license terms.

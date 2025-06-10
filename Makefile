@@ -44,22 +44,38 @@ fmt:
 # Run basic example
 run-basic: check-duckdb
 	@echo "Running basic example..."
-	CGO_ENABLED=0 go run examples/basic.go
+	CGO_ENABLED=0 go run examples/basic/main.go
 
 # Run advanced example
 run-adv: check-duckdb
 	@echo "Running advanced example..."
-	CGO_ENABLED=0 go run examples/advanced.go
+	CGO_ENABLED=0 go run examples/advanced/main.go
 
 # Run complex types example
 run-complex: check-duckdb
 	@echo "Running complex types example..."
-	CGO_ENABLED=0 go run examples/complex_types.go
+	CGO_ENABLED=0 go run examples/complex-types/main.go
 
 # Run performance example
 run-perf: check-duckdb
 	@echo "Running performance example..."
-	CGO_ENABLED=0 go run examples/performance.go
+	CGO_ENABLED=0 go run examples/performance/main.go
+
+# Test all examples
+test-examples: check-duckdb
+	@echo "Testing all examples..."
+	CGO_ENABLED=0 go test -v ./examples/basic/...
+	CGO_ENABLED=0 go test -v ./examples/advanced/...
+	CGO_ENABLED=0 go test -v ./examples/complex-types/...
+	CGO_ENABLED=0 go test -v ./examples/performance/...
+
+# Benchmark all examples
+bench-examples: check-duckdb
+	@echo "Benchmarking all examples..."
+	CGO_ENABLED=0 go test -bench=. -benchmem ./examples/basic/...
+	CGO_ENABLED=0 go test -bench=. -benchmem ./examples/advanced/...
+	CGO_ENABLED=0 go test -bench=. -benchmem ./examples/complex-types/...
+	CGO_ENABLED=0 go test -bench=. -benchmem ./examples/performance/...
 
 # Download dependencies
 deps:
@@ -106,6 +122,8 @@ help:
 	@echo "  make run-adv       - Run advanced example"
 	@echo "  make run-complex   - Run complex types example"
 	@echo "  make run-perf      - Run performance example"
+	@echo "  make test-examples - Test all examples"
+	@echo "  make bench-examples- Benchmark all examples"
 	@echo "  make deps          - Download dependencies"
 	@echo "  make build         - Build the module"
 	@echo "  make clean         - Clean build artifacts"

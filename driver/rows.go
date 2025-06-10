@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
+	"reflect"
 
 	"github.com/connerohnesorge/dukdb-go/internal/purego"
 )
@@ -100,9 +101,33 @@ func (r *Rows) ColumnTypePrecisionScale(index int) (int64, int64, bool) {
 }
 
 // ColumnTypeScanType returns the Go type suitable for scanning
-func (r *Rows) ColumnTypeScanType(index int) driver.ColumnType {
-	// TODO: Return appropriate reflect.Type based on column type
-	return nil
+func (r *Rows) ColumnTypeScanType(index int) reflect.Type {
+	if index < 0 || index >= len(r.cols) {
+		return reflect.TypeOf(interface{}(nil))
+	}
+	
+	switch r.cols[index].Type {
+	case purego.TypeBoolean:
+		return reflect.TypeOf(bool(false))
+	case purego.TypeTinyint:
+		return reflect.TypeOf(int8(0))
+	case purego.TypeSmallint:
+		return reflect.TypeOf(int16(0))
+	case purego.TypeInteger:
+		return reflect.TypeOf(int32(0))
+	case purego.TypeBigint:
+		return reflect.TypeOf(int64(0))
+	case purego.TypeFloat:
+		return reflect.TypeOf(float32(0))
+	case purego.TypeDouble:
+		return reflect.TypeOf(float64(0))
+	case purego.TypeVarchar:
+		return reflect.TypeOf(string(""))
+	case purego.TypeBlob:
+		return reflect.TypeOf([]byte(nil))
+	default:
+		return reflect.TypeOf(interface{}(nil))
+	}
 }
 
 // getTypeName returns the string name for a DuckDB type

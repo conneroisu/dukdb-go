@@ -63,5 +63,6 @@ func (l *Library) Close() error {
 
 // RegisterFunc registers a function from the library
 func (l *Library) RegisterFunc(fn interface{}, name string) error {
-	return purego.RegisterLibFunc(fn, l.handle, name)
+	purego.RegisterLibFunc(fn, l.handle, name)
+	return nil
 }

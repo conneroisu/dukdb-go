@@ -2,7 +2,6 @@ package driver
 
 import (
 	"context"
-	"database/sql/driver"
 	"fmt"
 	"sync"
 	"time"

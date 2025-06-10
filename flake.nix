@@ -4,15 +4,57 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    treefmt-nix.url = "github:numtide/treefmt-nix";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, treefmt-nix }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         
+        # Treefmt formatter configuration
+        treefmtEval = treefmt-nix.lib.evalModule pkgs {
+          projectRootFile = "flake.nix";
+          programs = {
+            # Nix formatter
+            nixpkgs-fmt.enable = true;
+            
+            # Go formatter
+            gofmt.enable = true;
+            
+            # Go line length formatter
+            golines = {
+              enable = true;
+              settings = {
+                max-len = 100;
+                base-formatter = "gofmt";
+              };
+            };
+            
+            # Markdown formatter  
+            mdformat.enable = true;
+            
+            # YAML formatter
+            yamlfmt.enable = true;
+            
+            # JSON formatter
+            prettier = {
+              enable = true;
+              includes = [ "*.json" ];
+            };
+          };
+          
+          settings.global.excludes = [
+            "*.sum"
+            "*.lock"
+            "vendor/**"
+            "testdata/**"
+            ".git/**"
+          ];
+        };
+        
         # Go version
-        go = pkgs.go_1_21;
+        go = pkgs.go_1_23;
         
         # Development tools
         devTools = with pkgs; [
@@ -50,7 +92,7 @@
           echo "Go version: $(go version)"
           echo ""
           echo "DuckDB library location:"
-          echo "  $(find ${pkgs.duckdb}/lib -name "libduckdb.*" | head -n1)"
+          echo "  ${pkgs.duckdb.lib}/lib/libduckdb.so"
           echo ""
           echo "Available commands:"
           echo "  make test      - Run all tests"
@@ -59,22 +101,28 @@
           echo "  make lint      - Run linters"
           echo "  make run-basic - Run basic example"
           echo "  make run-adv   - Run advanced example"
+          echo "  treefmt        - Format all files"
+          echo "  nix fmt        - Format all files (alias)"
           echo ""
           
           # Set library path for purego
-          export LD_LIBRARY_PATH="${pkgs.duckdb}/lib:$LD_LIBRARY_PATH"
-          export DYLD_LIBRARY_PATH="${pkgs.duckdb}/lib:$DYLD_LIBRARY_PATH"
+          export LD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$DYLD_LIBRARY_PATH"
           
           # For debugging
           export CGO_ENABLED=0
-          export DUCKDB_LIB_DIR="${pkgs.duckdb}/lib"
+          export DUCKDB_LIB_DIR="${pkgs.duckdb.lib}/lib"
         '';
 
       in
       {
+        # Formatter
+        formatter = treefmtEval.config.build.wrapper;
+        checks.formatting = treefmtEval.config.build.check self;
+
         # Development shell
         devShells.default = pkgs.mkShell {
-          buildInputs = devTools;
+          buildInputs = devTools ++ [ treefmtEval.config.build.wrapper ];
           inherit shellHook;
         };
 
@@ -88,15 +136,15 @@
           vendorHash = null; # Will be set after running go mod vendor
           
           # Ensure DuckDB is available at runtime
-          buildInputs = [ pkgs.duckdb ];
+          buildInputs = [ pkgs.duckdb.lib ];
           
           # Disable CGO
           CGO_ENABLED = 0;
           
           # Set library paths
           preBuild = ''
-            export LD_LIBRARY_PATH="${pkgs.duckdb}/lib:$LD_LIBRARY_PATH"
-            export DYLD_LIBRARY_PATH="${pkgs.duckdb}/lib:$DYLD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$LD_LIBRARY_PATH"
+            export DYLD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$DYLD_LIBRARY_PATH"
           '';
           
           # Don't run tests during build (they need DuckDB library)
@@ -113,8 +161,8 @@
         # Test runner that ensures DuckDB is available
         apps.test = flake-utils.lib.mkApp {
           drv = pkgs.writeShellScriptBin "test-dukdb-go" ''
-            export LD_LIBRARY_PATH="${pkgs.duckdb}/lib:$LD_LIBRARY_PATH"
-            export DYLD_LIBRARY_PATH="${pkgs.duckdb}/lib:$DYLD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$LD_LIBRARY_PATH"
+            export DYLD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$DYLD_LIBRARY_PATH"
             export CGO_ENABLED=0
             
             echo "Running tests with DuckDB ${pkgs.duckdb.version}..."
@@ -125,8 +173,8 @@
         # Benchmark runner
         apps.bench = flake-utils.lib.mkApp {
           drv = pkgs.writeShellScriptBin "bench-dukdb-go" ''
-            export LD_LIBRARY_PATH="${pkgs.duckdb}/lib:$LD_LIBRARY_PATH"
-            export DYLD_LIBRARY_PATH="${pkgs.duckdb}/lib:$DYLD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$LD_LIBRARY_PATH"
+            export DYLD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$DYLD_LIBRARY_PATH"
             export CGO_ENABLED=0
             
             echo "Running benchmarks with DuckDB ${pkgs.duckdb.version}..."
@@ -137,8 +185,8 @@
         # Example runners
         apps.example-basic = flake-utils.lib.mkApp {
           drv = pkgs.writeShellScriptBin "example-basic" ''
-            export LD_LIBRARY_PATH="${pkgs.duckdb}/lib:$LD_LIBRARY_PATH"
-            export DYLD_LIBRARY_PATH="${pkgs.duckdb}/lib:$DYLD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$LD_LIBRARY_PATH"
+            export DYLD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$DYLD_LIBRARY_PATH"
             export CGO_ENABLED=0
             
             ${go}/bin/go run examples/basic.go
@@ -147,8 +195,8 @@
 
         apps.example-advanced = flake-utils.lib.mkApp {
           drv = pkgs.writeShellScriptBin "example-advanced" ''
-            export LD_LIBRARY_PATH="${pkgs.duckdb}/lib:$LD_LIBRARY_PATH"
-            export DYLD_LIBRARY_PATH="${pkgs.duckdb}/lib:$DYLD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$LD_LIBRARY_PATH"
+            export DYLD_LIBRARY_PATH="${pkgs.duckdb.lib}/lib:$DYLD_LIBRARY_PATH"
             export CGO_ENABLED=0
             
             ${go}/bin/go run examples/advanced.go

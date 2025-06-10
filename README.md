@@ -213,16 +213,34 @@ go test -v -tags=integration ./test/integration/...
 
 ```bash
 # Basic usage example
-go run examples/basic.go
+go run examples/basic/main.go
 
 # Advanced features (date/time, blobs, transactions, analytics)
-go run examples/advanced.go
+go run examples/advanced/main.go
 
 # Complex types (UUID, LIST, STRUCT, MAP)
-go run examples/complex_types.go
+go run examples/complex-types/main.go
 
 # Performance testing and benchmarks
-go run examples/performance.go
+go run examples/performance/main.go
+```
+
+### Testing Examples
+
+Each example includes comprehensive tests:
+
+```bash
+# Test individual examples
+go test -v ./examples/basic/...
+go test -v ./examples/advanced/...
+go test -v ./examples/complex-types/...
+go test -v ./examples/performance/...
+
+# Test all examples
+make test-examples
+
+# Benchmark examples
+make bench-examples
 ```
 
 ### Running Benchmarks
