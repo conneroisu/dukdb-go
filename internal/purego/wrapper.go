@@ -131,11 +131,22 @@ func (d *DuckDB) createQueryResult(result Result) *QueryResult {
 
 	for i := uint64(0); i < colCount; i++ {
 		namePtr := d.duckdbColumnName(result, i)
-		qr.columns[i] = Column{
+		colType := d.duckdbColumnType(result, i)
+		logicalType := d.duckdbColumnLogicalType(result, i)
+		
+		column := Column{
 			Name:        ptrToString(namePtr),
-			Type:        d.duckdbColumnType(result, i),
-			LogicalType: d.duckdbColumnLogicalType(result, i),
+			Type:        colType,
+			LogicalType: logicalType,
 		}
+		
+		// Extract precision and scale for DECIMAL types
+		if colType == TypeDecimal {
+			column.Precision = d.duckdbDecimalWidth(logicalType)
+			column.Scale = d.duckdbDecimalScale(logicalType)
+		}
+		
+		qr.columns[i] = column
 	}
 
 	return qr

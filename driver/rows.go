@@ -84,8 +84,45 @@ func (r *Rows) ColumnTypeDatabaseTypeName(index int) string {
 
 // ColumnTypeLength returns the length of the column type
 func (r *Rows) ColumnTypeLength(index int) (int64, bool) {
-	// TODO: Implement based on type
-	return 0, false
+	if index < 0 || index >= len(r.cols) {
+		return 0, false
+	}
+	
+	switch r.cols[index].Type {
+	case purego.TypeVarchar:
+		// VARCHAR has variable length, return a reasonable default
+		return 65535, true
+	case purego.TypeBlob:
+		// BLOB has variable length
+		return 65535, true
+	case purego.TypeDecimal:
+		// For DECIMAL, length could be considered as precision
+		return int64(r.cols[index].Precision), true
+	case purego.TypeTinyint:
+		return 1, true
+	case purego.TypeSmallint:
+		return 2, true
+	case purego.TypeInteger:
+		return 4, true
+	case purego.TypeBigint:
+		return 8, true
+	case purego.TypeFloat:
+		return 4, true
+	case purego.TypeDouble:
+		return 8, true
+	case purego.TypeBoolean:
+		return 1, true
+	case purego.TypeDate:
+		return 4, true
+	case purego.TypeTime:
+		return 8, true
+	case purego.TypeTimestamp, purego.TypeTimestampS, purego.TypeTimestampMS, purego.TypeTimestampNS:
+		return 8, true
+	case purego.TypeUUID:
+		return 16, true
+	default:
+		return 0, false
+	}
 }
 
 // ColumnTypeNullable returns whether the column can be null
@@ -96,8 +133,24 @@ func (r *Rows) ColumnTypeNullable(index int) (bool, bool) {
 
 // ColumnTypePrecisionScale returns the precision and scale for numeric types
 func (r *Rows) ColumnTypePrecisionScale(index int) (int64, int64, bool) {
-	// TODO: Implement for DECIMAL types
-	return 0, 0, false
+	if index < 0 || index >= len(r.cols) {
+		return 0, 0, false
+	}
+	
+	// Return precision and scale for DECIMAL types
+	if r.cols[index].Type == purego.TypeDecimal {
+		return int64(r.cols[index].Precision), int64(r.cols[index].Scale), true
+	}
+	
+	// For other numeric types, return appropriate defaults
+	switch r.cols[index].Type {
+	case purego.TypeFloat:
+		return 7, 0, true // Single precision float
+	case purego.TypeDouble:
+		return 15, 0, true // Double precision float
+	default:
+		return 0, 0, false
+	}
 }
 
 // ColumnTypeScanType returns the Go type suitable for scanning
@@ -121,6 +174,9 @@ func (r *Rows) ColumnTypeScanType(index int) reflect.Type {
 		return reflect.TypeOf(float32(0))
 	case purego.TypeDouble:
 		return reflect.TypeOf(float64(0))
+	case purego.TypeDecimal:
+		// Import the types package to reference Decimal
+		return reflect.TypeOf(string("")) // Return string for now, can be scanned into types.Decimal
 	case purego.TypeVarchar:
 		return reflect.TypeOf(string(""))
 	case purego.TypeBlob:

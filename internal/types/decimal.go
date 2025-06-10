@@ -7,10 +7,11 @@ import (
 	"strings"
 )
 
-// Decimal represents a DuckDB DECIMAL type
+// Decimal represents a DuckDB DECIMAL type with precision and scale
 type Decimal struct {
-	value *big.Int
-	scale uint8
+	value     *big.Int
+	precision uint8 // Total number of digits (1-38 for DuckDB)
+	scale     uint8 // Number of digits after decimal point
 }
 
 // NewDecimal creates a new Decimal from a string
@@ -37,17 +38,39 @@ func NewDecimal(s string) (*Decimal, error) {
 		return nil, fmt.Errorf("invalid decimal value: %s", s)
 	}
 
+	// Use default precision based on detected digits
+	digits := len(strings.ReplaceAll(s, ".", ""))
+	if strings.HasPrefix(s, "-") {
+		digits-- // Don't count the negative sign
+	}
+	precision := uint8(digits)
+	if precision == 0 {
+		precision = 1
+	}
+
 	return &Decimal{
-		value: value,
-		scale: scale,
+		value:     value,
+		precision: precision,
+		scale:     scale,
 	}, nil
 }
 
-// NewDecimalFromBigInt creates a Decimal from a big.Int with scale
+// NewDecimalFromBigInt creates a Decimal from a big.Int with scale and default precision
 func NewDecimalFromBigInt(value *big.Int, scale uint8) *Decimal {
+	// Calculate precision from the number of digits
+	digits := len(value.String())
+	if value.Sign() < 0 {
+		digits-- // Don't count the negative sign
+	}
+	precision := uint8(digits)
+	if precision == 0 {
+		precision = 1
+	}
+
 	return &Decimal{
-		value: new(big.Int).Set(value),
-		scale: scale,
+		value:     new(big.Int).Set(value),
+		precision: precision,
+		scale:     scale,
 	}
 }
 
@@ -113,6 +136,7 @@ func (d Decimal) Value() (driver.Value, error) {
 func (d *Decimal) Scan(value interface{}) error {
 	if value == nil {
 		d.value = nil
+		d.precision = 1
 		d.scale = 0
 		return nil
 	}
@@ -139,6 +163,13 @@ func (d *Decimal) Scan(value interface{}) error {
 		return nil
 	case int64:
 		d.value = big.NewInt(v)
+		d.precision = uint8(len(fmt.Sprintf("%d", v)))
+		if v < 0 {
+			d.precision-- // Don't count negative sign
+		}
+		if d.precision == 0 {
+			d.precision = 1
+		}
 		d.scale = 0
 		return nil
 	default:
@@ -157,4 +188,49 @@ func (d *Decimal) BigInt() *big.Int {
 // Scale returns the scale of the decimal
 func (d *Decimal) Scale() uint8 {
 	return d.scale
+}
+
+// Precision returns the precision of the decimal
+func (d *Decimal) Precision() uint8 {
+	return d.precision
+}
+
+// validatePrecisionScale validates that the decimal value fits within precision/scale constraints
+func (d *Decimal) validatePrecisionScale(precision, scale uint8) error {
+	if d.value == nil {
+		return nil
+	}
+
+	// Calculate total digits in the value
+	valueStr := d.value.String()
+	if valueStr[0] == '-' {
+		valueStr = valueStr[1:] // Remove negative sign
+	}
+
+	totalDigits := uint8(len(valueStr))
+	if totalDigits > precision {
+		return fmt.Errorf("value has %d digits, exceeds precision %d", totalDigits, precision)
+	}
+
+	return nil
+}
+
+// adjustScale adjusts the decimal's internal value to match a new scale
+func (d *Decimal) adjustScale(newScale uint8) {
+	if d.value == nil {
+		d.scale = newScale
+		return
+	}
+
+	if newScale > d.scale {
+		// Increase scale - multiply by 10^(newScale - oldScale)
+		multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(newScale-d.scale)), nil)
+		d.value.Mul(d.value, multiplier)
+	} else if newScale < d.scale {
+		// Decrease scale - divide by 10^(oldScale - newScale)
+		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(d.scale-newScale)), nil)
+		d.value.Div(d.value, divisor)
+	}
+
+	d.scale = newScale
 }

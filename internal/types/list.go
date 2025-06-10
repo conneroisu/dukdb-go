@@ -7,19 +7,31 @@ import (
 	"reflect"
 )
 
-// List represents a DuckDB LIST type
-type List struct {
-	values []interface{}
+// List represents a DuckDB LIST type with type-safe generic support
+type List[T any] struct {
+	values []T
 }
 
-// NewList creates a new List from a slice
-func NewList(values interface{}) (*List, error) {
+// ListAny is an alias for backward compatibility with untyped lists
+type ListAny = List[interface{}]
+
+// NewList creates a new type-safe List from a slice
+func NewList[T any](values []T) *List[T] {
+	listValues := make([]T, len(values))
+	copy(listValues, values)
+	return &List[T]{
+		values: listValues,
+	}
+}
+
+// NewListAny creates a new List from any slice type (backward compatibility)
+func NewListAny(values interface{}) (*ListAny, error) {
 	v := reflect.ValueOf(values)
 	if v.Kind() != reflect.Slice && v.Kind() != reflect.Array {
 		return nil, fmt.Errorf("expected slice or array, got %T", values)
 	}
 
-	list := &List{
+	list := &ListAny{
 		values: make([]interface{}, v.Len()),
 	}
 
@@ -31,15 +43,27 @@ func NewList(values interface{}) (*List, error) {
 }
 
 // Values returns the underlying slice
-func (l *List) Values() []interface{} {
+func (l *List[T]) Values() []T {
 	if l == nil {
 		return nil
 	}
 	return l.values
 }
 
+// ValuesAny returns the underlying slice as []interface{} for backward compatibility
+func (l *List[T]) ValuesAny() []interface{} {
+	if l == nil {
+		return nil
+	}
+	result := make([]interface{}, len(l.values))
+	for i, v := range l.values {
+		result[i] = v
+	}
+	return result
+}
+
 // Len returns the number of elements
-func (l *List) Len() int {
+func (l *List[T]) Len() int {
 	if l == nil {
 		return 0
 	}
@@ -47,15 +71,33 @@ func (l *List) Len() int {
 }
 
 // Get returns the element at the given index
-func (l *List) Get(i int) (interface{}, error) {
+func (l *List[T]) Get(i int) (T, error) {
+	var zero T
 	if l == nil || i < 0 || i >= len(l.values) {
-		return nil, fmt.Errorf("index out of bounds: %d", i)
+		return zero, fmt.Errorf("index out of bounds: %d", i)
 	}
 	return l.values[i], nil
 }
 
+// Set sets the element at the given index
+func (l *List[T]) Set(i int, value T) error {
+	if l == nil || i < 0 || i >= len(l.values) {
+		return fmt.Errorf("index out of bounds: %d", i)
+	}
+	l.values[i] = value
+	return nil
+}
+
+// Append adds elements to the end of the list
+func (l *List[T]) Append(values ...T) {
+	if l == nil {
+		return
+	}
+	l.values = append(l.values, values...)
+}
+
 // String returns a string representation
-func (l *List) String() string {
+func (l *List[T]) String() string {
 	if l == nil {
 		return "[]"
 	}
@@ -63,7 +105,7 @@ func (l *List) String() string {
 }
 
 // Value implements driver.Valuer
-func (l List) Value() (driver.Value, error) {
+func (l List[T]) Value() (driver.Value, error) {
 	if l.values == nil {
 		return nil, nil
 	}
@@ -72,7 +114,7 @@ func (l List) Value() (driver.Value, error) {
 }
 
 // Scan implements sql.Scanner
-func (l *List) Scan(value interface{}) error {
+func (l *List[T]) Scan(value interface{}) error {
 	if value == nil {
 		l.values = nil
 		return nil
@@ -85,12 +127,26 @@ func (l *List) Scan(value interface{}) error {
 	case string:
 		// Try to unmarshal as JSON
 		return json.Unmarshal([]byte(v), &l.values)
-	case []interface{}:
+	case []T:
 		l.values = v
 		return nil
-	default:
-		// Try to convert single value to list
-		l.values = []interface{}{value}
+	case []interface{}:
+		// Convert []interface{} to []T if possible
+		l.values = make([]T, len(v))
+		for i, val := range v {
+			if typedVal, ok := val.(T); ok {
+				l.values[i] = typedVal
+			} else {
+				return fmt.Errorf("cannot convert %T to %T", val, *new(T))
+			}
+		}
 		return nil
+	default:
+		// Try to convert single value to list if it matches type T
+		if typedVal, ok := value.(T); ok {
+			l.values = []T{typedVal}
+			return nil
+		}
+		return fmt.Errorf("cannot scan %T into List[%T]", value, *new(T))
 	}
 }

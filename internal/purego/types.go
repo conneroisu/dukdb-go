@@ -70,6 +70,8 @@ type Column struct {
 	Type         uint32
 	LogicalType  LogicalType
 	InternalType string
+	Precision    uint8 // For DECIMAL types
+	Scale        uint8 // For DECIMAL types
 }
 
 // Vector represents a column vector in DuckDB
