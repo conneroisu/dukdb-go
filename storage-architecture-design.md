@@ -33,11 +33,6 @@ DuckDB employs a hybrid storage architecture optimized for analytical workloads:
 - **Compression**: Supports Snappy, Gzip, Brotli, Zstd, Lz4Raw
 - **Maintenance**: Active development, moved to parquet-go/parquet-go organization
 
-#### xitongsys/parquet-go
-- **Performance**: Memory issues reported (>10GB RAM usage for large files)
-- **Concurrency**: Built-in goroutine support for marshal/unmarshal
-- **Limitations**: Memory-intensive for PLAIN_DICTIONARY encoding
-
 ### CSV Libraries
 
 #### Standard encoding/csv
