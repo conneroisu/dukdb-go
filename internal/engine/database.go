@@ -25,10 +25,8 @@ func NewDatabase(path string) (*Database, error) {
 		catalog:  NewCatalog(),
 	}
 	
-	if !db.isMemory {
-		// TODO: Initialize file-based storage
-		// For now, we'll treat all databases as in-memory
-	}
+	// File-based storage not yet implemented
+	_ = db.isMemory // Acknowledge the field is used for future file storage
 	
 	return db, nil
 }

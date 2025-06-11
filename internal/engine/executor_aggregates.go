@@ -14,7 +14,7 @@ func (e *Executor) executeAggregate(ctx context.Context, plan *AggregatePlan) (*
 	if err != nil {
 		return nil, err
 	}
-	defer childResult.Close()
+	defer func() { _ = childResult.Close() }() // Closing errors not critical in defer
 	
 	
 	// Create schema
@@ -88,12 +88,12 @@ func (e *Executor) executeAggregate(ctx context.Context, plan *AggregatePlan) (*
 			for row := 0; row < chunk.Size(); row++ {
 				for col := 0; col < chunk.ColumnCount(); col++ {
 					val, _ := chunk.GetValue(col, row)
-					mergedChunk.SetValue(col, destRow, val)
+					_ = mergedChunk.SetValue(col, destRow, val) // Value setting errors are not critical here
 				}
 				destRow++
 			}
 		}
-		mergedChunk.SetSize(totalSize)
+		_ = mergedChunk.SetSize(totalSize) // Size setting errors are not critical here
 		
 		// Execute aggregate on merged chunk
 		resultChunk, err = aggOp.Execute(ctx, mergedChunk)

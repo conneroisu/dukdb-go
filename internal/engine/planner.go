@@ -120,7 +120,7 @@ func (p *Planner) planSelect(stmt *SelectStatement) (Plan, error) {
 		}
 	}
 	
-	var plan Plan = basePlan
+	plan := basePlan
 	
 	// Add filter if WHERE clause exists
 	if stmt.Where != nil {

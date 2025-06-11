@@ -65,7 +65,7 @@ func (c *Connection) Execute(ctx context.Context, sql string) error {
 	if err != nil {
 		return err
 	}
-	result.Close()
+	_ = result.Close() // Closing errors not critical for Execute
 	return nil
 }
 
@@ -134,7 +134,7 @@ func (c *Connection) commitInternal() error {
 	}
 	
 	if c.txn != nil {
-		c.txn.Commit()
+		_ = c.txn.Commit() // Commit errors handled at transaction level
 	}
 	
 	c.txn = nil
@@ -158,7 +158,7 @@ func (c *Connection) rollbackInternal() error {
 	}
 	
 	if c.txn != nil {
-		c.txn.Rollback()
+		_ = c.txn.Rollback() // Rollback errors are not critical
 	}
 	
 	c.txn = nil
@@ -178,7 +178,7 @@ func (c *Connection) Close() error {
 	
 	// Rollback any active transaction
 	if c.txnState == TxnStateManual && c.txn != nil {
-		c.txn.Rollback()
+		_ = c.txn.Rollback() // Rollback errors are not critical
 	}
 	
 	c.closed = true

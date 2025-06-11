@@ -140,7 +140,9 @@ func (a *AggregateOperator) executeSimpleAggregate(ctx context.Context, input *s
 		col++
 	}
 	
-	output.SetSize(1)
+	if err := output.SetSize(1); err != nil {
+		return nil, fmt.Errorf("failed to set output size: %w", err)
+	}
 	return output, nil
 }
 
@@ -243,7 +245,9 @@ func (a *AggregateOperator) executeGroupedAggregate(ctx context.Context, input *
 		outRow++
 	}
 	
-	output.SetSize(len(groups))
+	if err := output.SetSize(len(groups)); err != nil {
+		return nil, fmt.Errorf("failed to set output size: %w", err)
+	}
 	return output, nil
 }
 

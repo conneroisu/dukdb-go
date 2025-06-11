@@ -66,7 +66,7 @@ func (s *Stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 	rowsAffected := result.GetRowsAffected()
 	
 	// Close the result since we don't need it for Exec
-	result.Close()
+	_ = result.Close() // Result closing errors not critical in defer
 
 	return &Result{rowsAffected: rowsAffected}, nil
 }

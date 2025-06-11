@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/connerohnesorge/dukdb-go/internal/storage"
 )
@@ -103,9 +105,13 @@ func (e *Executor) executeValues(ctx context.Context, plan *ValuesPlan) (*QueryR
 		if err != nil {
 			return nil, err
 		}
-		chunk.SetValue(i, 0, val)
+		if err := chunk.SetValue(i, 0, val); err != nil {
+			return nil, fmt.Errorf("failed to set chunk value: %w", err)
+		}
 	}
-	chunk.SetSize(1)
+	if err := chunk.SetSize(1); err != nil {
+		return nil, fmt.Errorf("failed to set chunk size: %w", err)
+	}
 	
 	// Create column metadata
 	columns := make([]Column, len(plan.Expressions))
@@ -130,7 +136,7 @@ func (e *Executor) executeProject(ctx context.Context, plan *ProjectPlan) (*Quer
 	if err != nil {
 		return nil, err
 	}
-	defer childResult.Close()
+	defer func() { _ = childResult.Close() }() // Closing errors not critical in defer
 	
 	// If projecting all columns (*), return child result as-is
 	if len(plan.Expressions) == 1 {
@@ -169,12 +175,29 @@ func (e *Executor) executeProject(ctx context.Context, plan *ProjectPlan) (*Quer
 		outputChunks = append(outputChunks, outputChunk)
 	}
 	
-	// Create output columns metadata
+	// Create output columns metadata with proper names
 	outputSchema := projOp.GetOutputSchema()
 	columns := make([]Column, len(outputSchema))
 	for i, typ := range outputSchema {
+		// Try to get proper column name from expression
+		var colName string
+		if i < len(plan.Expressions) {
+			if col, ok := plan.Expressions[i].(*ColumnExpr); ok {
+				colName = col.Column
+			} else if funcExpr, ok := plan.Expressions[i].(*FunctionExpr); ok && funcExpr.Alias != "" {
+				colName = funcExpr.Alias
+			} else if _, ok := plan.Expressions[i].(*BinaryExpr); ok {
+				// For computed expressions like oi.quantity * oi.unit_price
+				colName = fmt.Sprintf("expr_%d", i)
+			} else {
+				colName = fmt.Sprintf("col_%d", i)
+			}
+		} else {
+			colName = fmt.Sprintf("col_%d", i)
+		}
+		
 		columns[i] = Column{
-			Name: fmt.Sprintf("col_%d", i), // Would need proper column names
+			Name: colName,
 			Type: typ,
 		}
 	}
@@ -193,7 +216,7 @@ func (e *Executor) executeFilter(ctx context.Context, plan *FilterPlan) (*QueryR
 	if err != nil {
 		return nil, err
 	}
-	defer childResult.Close()
+	defer func() { _ = childResult.Close() }() // Closing errors not critical in defer
 	
 	// Create filter operator with column context
 	inputSchema := make([]storage.LogicalType, len(childResult.columns))
@@ -234,7 +257,7 @@ func (e *Executor) executeSort(ctx context.Context, plan *SortPlan) (*QueryResul
 	if err != nil {
 		return nil, err
 	}
-	defer childResult.Close()
+	defer func() { _ = childResult.Close() }() // Closing errors not critical in defer
 	
 	// For sort, we need to materialize all data first
 	// In a real implementation, we'd use external sort for large datasets
@@ -275,12 +298,16 @@ func (e *Executor) executeSort(ctx context.Context, plan *SortPlan) (*QueryResul
 		for row := 0; row < chunk.Size(); row++ {
 			for col := 0; col < chunk.ColumnCount(); col++ {
 				val, _ := chunk.GetValue(col, row)
-				mergedChunk.SetValue(col, destRow, val)
+				if err := mergedChunk.SetValue(col, destRow, val); err != nil {
+					return nil, fmt.Errorf("failed to set merged chunk value: %w", err)
+				}
 			}
 			destRow++
 		}
 	}
-	mergedChunk.SetSize(totalSize)
+	if err := mergedChunk.SetSize(totalSize); err != nil {
+		return nil, fmt.Errorf("failed to set merged chunk size: %w", err)
+	}
 	
 	// Sort the merged chunk with column names for alias resolution
 	columnNames := make([]string, len(childResult.columns))
@@ -308,7 +335,7 @@ func (e *Executor) executeLimit(ctx context.Context, plan *LimitPlan) (*QueryRes
 	if err != nil {
 		return nil, err
 	}
-	defer childResult.Close()
+	defer func() { _ = childResult.Close() }() // Closing errors not critical in defer
 	
 	// Create schema
 	inputSchema := make([]storage.LogicalType, len(childResult.columns))
@@ -544,7 +571,7 @@ func (e *Executor) executeDelete(ctx context.Context, plan *DeletePlan) (*QueryR
 		}
 		
 		if newRowIdx > 0 {
-			newChunk.SetSize(newRowIdx)
+			_ = newChunk.SetSize(newRowIdx) // Size setting errors are not critical here
 			newChunks = append(newChunks, newChunk)
 		}
 	}
@@ -694,7 +721,7 @@ func (e *Executor) evaluateJoinCondition(condition Expression, leftChunk *storag
 		}
 	}
 	
-	combinedChunk.SetSize(1)
+	_ = combinedChunk.SetSize(1) // Size setting errors are not critical here
 	
 	// Evaluate condition with combined context
 	ctx := &EvaluationContext{
@@ -842,6 +869,35 @@ type hashJoinEntry struct {
 	row   int
 }
 
+// hashJoinValue creates an efficient hash key from a value
+func hashJoinValue(val interface{}) string {
+	if val == nil {
+		return "NULL"
+	}
+	
+	switch v := val.(type) {
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int:
+		return strconv.Itoa(v)
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'g', -1, 32)
+	case string:
+		return v
+	case bool:
+		if v {
+			return "1"
+		}
+		return "0"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
 // executeHashJoin performs a hash join for equi-joins
 func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResult, rightResult *QueryResult, joinKeys []equiJoinKey, outputColumns []Column) (*QueryResult, error) {
 	// Collect right side chunks (build side)
@@ -868,12 +924,12 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 					skipRow = true
 					break
 				}
-				keyParts[i] = fmt.Sprintf("%v", val)
+				keyParts[i] = hashJoinValue(val)
 			}
 			if skipRow {
 				continue
 			}
-			hashKey := fmt.Sprintf("%s", keyParts) // Simple key generation
+			hashKey := strings.Join(keyParts, "|") // More efficient key generation
 			
 			hashTable[hashKey] = append(hashTable[hashKey], hashJoinEntry{
 				chunk: chunk,
@@ -913,14 +969,14 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 					skipRow = true
 					break
 				}
-				keyParts[i] = fmt.Sprintf("%v", val)
+				keyParts[i] = hashJoinValue(val)
 			}
 			
 			hasMatch := false
 			hashKey := ""
 			
 			if !skipRow {
-				hashKey = fmt.Sprintf("%s", keyParts)
+				hashKey = strings.Join(keyParts, "|")
 				// Probe hash table
 				if entries, found := hashTable[hashKey]; found {
 					hasMatch = true
@@ -928,7 +984,7 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 					// Create new chunk if needed
 					if currentChunk == nil || currentSize >= chunkSize {
 						if currentChunk != nil {
-							currentChunk.SetSize(currentSize)
+							_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 							resultChunks = append(resultChunks, currentChunk)
 						}
 						currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
@@ -967,7 +1023,7 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 				// Create new chunk if needed
 				if currentChunk == nil || currentSize >= chunkSize {
 					if currentChunk != nil {
-						currentChunk.SetSize(currentSize)
+						_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 						resultChunks = append(resultChunks, currentChunk)
 					}
 					currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
@@ -1000,7 +1056,7 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 	
 	// Add final chunk if it has data
 	if currentChunk != nil && currentSize > 0 {
-		currentChunk.SetSize(currentSize)
+		_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 		resultChunks = append(resultChunks, currentChunk)
 	}
 	
@@ -1058,7 +1114,7 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 						// Create new chunk if needed
 						if currentChunk == nil || currentSize >= chunkSize {
 							if currentChunk != nil {
-								currentChunk.SetSize(currentSize)
+								_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 								resultChunks = append(resultChunks, currentChunk)
 							}
 							currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
@@ -1115,7 +1171,7 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 					// Add left row with NULL right columns
 					if currentChunk == nil || currentSize >= chunkSize {
 						if currentChunk != nil {
-							currentChunk.SetSize(currentSize)
+							_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 							resultChunks = append(resultChunks, currentChunk)
 						}
 						currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
@@ -1148,7 +1204,7 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 	
 	// Add final chunk if it has data
 	if currentChunk != nil && currentSize > 0 {
-		currentChunk.SetSize(currentSize)
+		_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 		resultChunks = append(resultChunks, currentChunk)
 	}
 	
@@ -1166,14 +1222,14 @@ func (e *Executor) executeUnion(ctx context.Context, plan *UnionPlan) (*QueryRes
 	if err != nil {
 		return nil, fmt.Errorf("union left side failed: %w", err)
 	}
-	defer leftResult.Close()
+	defer func() { _ = leftResult.Close() }() // Closing errors not critical in defer
 	
 	// Execute right side
 	rightResult, err := e.Execute(ctx, plan.Right)
 	if err != nil {
 		return nil, fmt.Errorf("union right side failed: %w", err)
 	}
-	defer rightResult.Close()
+	defer func() { _ = rightResult.Close() }() // Closing errors not critical in defer
 	
 	// Validate schemas match
 	if len(leftResult.columns) != len(rightResult.columns) {
@@ -1207,7 +1263,7 @@ func (e *Executor) executeUnion(ctx context.Context, plan *UnionPlan) (*QueryRes
 				// Create new chunk if needed
 				if currentChunk == nil || currentSize >= chunkSize {
 					if currentChunk != nil {
-						currentChunk.SetSize(currentSize)
+						_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 						allChunks = append(allChunks, currentChunk)
 					}
 					currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
@@ -1239,7 +1295,7 @@ func (e *Executor) executeUnion(ctx context.Context, plan *UnionPlan) (*QueryRes
 				// Create new chunk if needed
 				if currentChunk == nil || currentSize >= chunkSize {
 					if currentChunk != nil {
-						currentChunk.SetSize(currentSize)
+						_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 						allChunks = append(allChunks, currentChunk)
 					}
 					currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
@@ -1263,7 +1319,7 @@ func (e *Executor) executeUnion(ctx context.Context, plan *UnionPlan) (*QueryRes
 	
 	// Add final chunk if it has data
 	if currentChunk != nil && currentSize > 0 {
-		currentChunk.SetSize(currentSize)
+		_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 		allChunks = append(allChunks, currentChunk)
 	}
 	
@@ -1328,7 +1384,7 @@ func (e *Executor) removeDuplicateRows(chunks []*storage.DataChunk, columns []Co
 				// Create new chunk if needed
 				if currentChunk == nil || currentSize >= chunkSize {
 					if currentChunk != nil {
-						currentChunk.SetSize(currentSize)
+						_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 						resultChunks = append(resultChunks, currentChunk)
 					}
 					currentChunk = storage.NewDataChunk(schema, chunkSize)
@@ -1341,7 +1397,7 @@ func (e *Executor) removeDuplicateRows(chunks []*storage.DataChunk, columns []Co
 					if err != nil {
 						continue
 					}
-					currentChunk.SetValue(col, currentSize, val)
+					_ = currentChunk.SetValue(col, currentSize, val) // Value setting errors are not critical here
 				}
 				currentSize++
 			}
@@ -1350,7 +1406,7 @@ func (e *Executor) removeDuplicateRows(chunks []*storage.DataChunk, columns []Co
 	
 	// Add final chunk if it has data
 	if currentChunk != nil && currentSize > 0 {
-		currentChunk.SetSize(currentSize)
+		_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 		resultChunks = append(resultChunks, currentChunk)
 	}
 	

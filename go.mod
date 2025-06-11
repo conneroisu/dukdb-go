@@ -14,3 +14,5 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 )
+
+replace github.com/connerohnesorge/dukdb-go => ..

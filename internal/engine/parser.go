@@ -699,31 +699,7 @@ func parseWhereExpressionWithParams(where string, paramIndex *int) Expression {
 		return parseSubqueryInWhere(where)
 	}
 	
-	// Handle AND expressions first (higher precedence)
-	if andIdx := strings.Index(upperWhere, " AND "); andIdx != -1 {
-		left := strings.TrimSpace(where[:andIdx])
-		right := strings.TrimSpace(where[andIdx+5:]) // Skip " AND "
-		
-		return &BinaryExpr{
-			Left:  parseWhereExpressionWithParams(left, paramIndex),
-			Op:    OpAnd,
-			Right: parseWhereExpressionWithParams(right, paramIndex),
-		}
-	}
-	
-	// Handle OR expressions (lower precedence)
-	if orIdx := strings.Index(upperWhere, " OR "); orIdx != -1 {
-		left := strings.TrimSpace(where[:orIdx])
-		right := strings.TrimSpace(where[orIdx+4:]) // Skip " OR "
-		
-		return &BinaryExpr{
-			Left:  parseWhereExpressionWithParams(left, paramIndex),
-			Op:    OpOr,
-			Right: parseWhereExpressionWithParams(right, paramIndex),
-		}
-	}
-	
-	// Check for BETWEEN
+	// Check for BETWEEN first (before AND/OR to avoid conflicts)
 	if strings.Contains(upperWhere, " BETWEEN ") {
 		betweenIdx := strings.Index(upperWhere, " BETWEEN ")
 		andIdx := strings.Index(upperWhere[betweenIdx:], " AND ")
@@ -751,6 +727,30 @@ func parseWhereExpressionWithParams(where string, paramIndex *int) Expression {
 				Op:    OpAnd,
 				Right: upperExpr,
 			}
+		}
+	}
+	
+	// Handle AND expressions (higher precedence)
+	if andIdx := strings.Index(upperWhere, " AND "); andIdx != -1 {
+		left := strings.TrimSpace(where[:andIdx])
+		right := strings.TrimSpace(where[andIdx+5:]) // Skip " AND "
+		
+		return &BinaryExpr{
+			Left:  parseWhereExpressionWithParams(left, paramIndex),
+			Op:    OpAnd,
+			Right: parseWhereExpressionWithParams(right, paramIndex),
+		}
+	}
+	
+	// Handle OR expressions (lower precedence)
+	if orIdx := strings.Index(upperWhere, " OR "); orIdx != -1 {
+		left := strings.TrimSpace(where[:orIdx])
+		right := strings.TrimSpace(where[orIdx+4:]) // Skip " OR "
+		
+		return &BinaryExpr{
+			Left:  parseWhereExpressionWithParams(left, paramIndex),
+			Op:    OpOr,
+			Right: parseWhereExpressionWithParams(right, paramIndex),
 		}
 	}
 	
@@ -826,7 +826,18 @@ func parseWhereExpressionWithParams(where string, paramIndex *int) Expression {
 		}
 	}
 	
-	// If no operator found, return nil
+	// If no operator found, try to parse as a simple column reference or value
+	// This could be the case for expressions like "column" without operators
+	if isIdentifier(where) {
+		return &ColumnExpr{Column: where}
+	}
+	
+	// Try to parse as a constant value
+	if val, err := parseValue(where); err == nil {
+		return &ConstantExpr{Value: val}
+	}
+	
+	// If all else fails, return nil
 	return nil
 }
 
@@ -1771,72 +1782,104 @@ func parseUnion(sql string) *UnionStatement {
 	sql = strings.Join(strings.Fields(sql), " ")
 	upperSQL := strings.ToUpper(sql)
 	
-	// Look for UNION ALL first (it's longer, so check it before UNION)
-	unionAllIdx := findTopLevelUnion(sql, upperSQL, "UNION ALL")
-	if unionAllIdx != -1 {
-		// Found UNION ALL
-		leftSQL := strings.TrimSpace(sql[:unionAllIdx])
-		rightSQL := strings.TrimSpace(sql[unionAllIdx+9:]) // Skip "UNION ALL"
+	// Find all UNION positions to handle chained UNIONs
+	return parseChainedUnion(sql, upperSQL)
+}
+
+// parseChainedUnion handles chained UNION operations by building a left-associative tree
+func parseChainedUnion(sql, upperSQL string) *UnionStatement {
+	// First, check if there are any UNIONs at all
+	hasUnionAll := findTopLevelUnion(sql, upperSQL, "UNION ALL") != -1
+	hasUnion := findTopLevelUnion(sql, upperSQL, "UNION") != -1
+	
+	if !hasUnionAll && !hasUnion {
+		return nil
+	}
+	
+	// Find the first (leftmost) UNION or UNION ALL
+	firstUnionAllIdx := findTopLevelUnion(sql, upperSQL, "UNION ALL")
+	firstUnionIdx := findTopLevelUnion(sql, upperSQL, "UNION")
+	
+	// Determine which comes first
+	var firstIdx int
+	var isUnionAll bool
+	var keywordLen int
+	
+	if firstUnionAllIdx != -1 && (firstUnionIdx == -1 || firstUnionAllIdx < firstUnionIdx) {
+		// UNION ALL comes first
+		firstIdx = firstUnionAllIdx
+		isUnionAll = true
+		keywordLen = 9 // len("UNION ALL")
+	} else if firstUnionIdx != -1 {
+		// UNION comes first, but make sure it's not actually "UNION ALL"
+		afterUnion := strings.TrimSpace(sql[firstUnionIdx+5:])
+		if strings.HasPrefix(strings.ToUpper(afterUnion), "ALL") {
+			// This is actually UNION ALL, but we missed it in our first check
+			firstIdx = firstUnionIdx
+			isUnionAll = true
+			keywordLen = 9
+		} else {
+			firstIdx = firstUnionIdx
+			isUnionAll = false
+			keywordLen = 5 // len("UNION")
+		}
+	} else {
+		return nil
+	}
+	
+	// Split at the first UNION
+	leftSQL := strings.TrimSpace(sql[:firstIdx])
+	rightSQL := strings.TrimSpace(sql[firstIdx+keywordLen:])
+	
+	// Check if the right side contains more UNIONs
+	rightUpperSQL := strings.ToUpper(rightSQL)
+	rightHasUnion := findTopLevelUnion(rightSQL, rightUpperSQL, "UNION ALL") != -1 || 
+		findTopLevelUnion(rightSQL, rightUpperSQL, "UNION") != -1
+	
+	var leftStmt Statement
+	var rightStmt Statement
+	var orderBy []OrderByExpr
+	var limit *int64
+	
+	// Parse left side as a single SELECT
+	var err error
+	leftStmt, err = parseSingleSelect(leftSQL)
+	if err != nil {
+		return nil
+	}
+	
+	if rightHasUnion {
+		// Right side contains more UNIONs, parse recursively
+		// But first, extract ORDER BY and LIMIT from the very end
+		rightSQL, orderBy, limit = extractUnionModifiers(rightSQL)
 		
-		// Parse ORDER BY and LIMIT from the right side
-		rightSQL, orderBy, limit := extractUnionModifiers(rightSQL)
-		
-		// Parse left and right SELECT statements
-		leftStmt, err := parseSingleSelect(leftSQL)
+		// Parse right side as a chained UNION
+		rightUnion := parseChainedUnion(rightSQL, strings.ToUpper(rightSQL))
+		if rightUnion != nil {
+			rightStmt = rightUnion
+		} else {
+			// If parsing as chained union fails, try as single SELECT
+			rightStmt, err = parseSingleSelect(rightSQL)
+			if err != nil {
+				return nil
+			}
+		}
+	} else {
+		// Right side is a single SELECT, extract modifiers and parse
+		rightSQL, orderBy, limit = extractUnionModifiers(rightSQL)
+		rightStmt, err = parseSingleSelect(rightSQL)
 		if err != nil {
 			return nil
-		}
-		
-		rightStmt, err := parseSingleSelect(rightSQL)
-		if err != nil {
-			return nil
-		}
-		
-		return &UnionStatement{
-			Left:     leftStmt,
-			Right:    rightStmt,
-			UnionAll: true,
-			OrderBy:  orderBy,
-			Limit:    limit,
 		}
 	}
 	
-	// Look for UNION (without ALL)
-	unionIdx := findTopLevelUnion(sql, upperSQL, "UNION")
-	if unionIdx != -1 {
-		// Found UNION
-		leftSQL := strings.TrimSpace(sql[:unionIdx])
-		rightSQL := strings.TrimSpace(sql[unionIdx+5:]) // Skip "UNION"
-		
-		// Make sure this isn't actually UNION ALL
-		if strings.HasPrefix(strings.TrimSpace(rightSQL), "ALL") {
-			return nil // This is UNION ALL, already handled above
-		}
-		
-		// Parse ORDER BY and LIMIT from the right side
-		rightSQL, orderBy, limit := extractUnionModifiers(rightSQL)
-		
-		// Parse left and right SELECT statements
-		leftStmt, err := parseSingleSelect(leftSQL)
-		if err != nil {
-			return nil
-		}
-		
-		rightStmt, err := parseSingleSelect(rightSQL)
-		if err != nil {
-			return nil
-		}
-		
-		return &UnionStatement{
-			Left:     leftStmt,
-			Right:    rightStmt,
-			UnionAll: false,
-			OrderBy:  orderBy,
-			Limit:    limit,
-		}
+	return &UnionStatement{
+		Left:     leftStmt,
+		Right:    rightStmt,
+		UnionAll: isUnionAll,
+		OrderBy:  orderBy,
+		Limit:    limit,
 	}
-	
-	return nil
 }
 
 // findTopLevelUnion finds UNION/UNION ALL at the top level (not in subqueries)

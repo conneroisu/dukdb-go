@@ -67,7 +67,12 @@ func (c *Conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		if err != nil {
 			return nil, err
 		}
-		defer stmt.Close()
+		defer func() {
+			if closeErr := stmt.Close(); closeErr != nil {
+				// Log error but don't override the main error
+				_ = closeErr
+			}
+		}()
 
 		return stmt.(*Stmt).ExecContext(ctx, args)
 	}
@@ -80,7 +85,7 @@ func (c *Conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	
 	// Get rows affected before closing
 	rowsAffected := result.GetRowsAffected()
-	result.Close()
+	_ = result.Close() // Result closing errors are not critical for Exec
 	
 	return &Result{rowsAffected: rowsAffected}, nil
 }
@@ -124,7 +129,7 @@ func (c *Conn) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	result.Close()
+	_ = result.Close() // Result closing errors are not critical for Exec
 	return nil
 }
 

@@ -133,7 +133,9 @@ func ResultToDataChunk(result *purego.QueryResult) (*DataChunk, error) {
 		}
 	}
 	
-	chunk.SetSize(rowCount)
+	if err := chunk.SetSize(rowCount); err != nil {
+		return nil, fmt.Errorf("failed to set chunk size: %w", err)
+	}
 	return chunk, nil
 }
 

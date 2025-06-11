@@ -49,23 +49,23 @@ func (f *FilterOperator) Execute(ctx context.Context, input *storage.DataChunk) 
 
 	// Create selection vector for filtered results
 	selection := make([]int, 0, input.Size())
-	
+
 	// Evaluate predicate for each row
 	for row := 0; row < input.Size(); row++ {
 		result, err := f.evaluatePredicate(input, row)
 		if err != nil {
 			return nil, fmt.Errorf("filter evaluation error: %w", err)
 		}
-		
+
 		// Add row to selection if predicate is true
 		if result {
 			selection = append(selection, row)
 		}
 	}
-	
+
 	// Create output chunk with filtered data
 	output := storage.NewDataChunk(f.schema, len(selection))
-	
+
 	// Copy selected rows to output
 	for outRow, inRow := range selection {
 		for col := 0; col < input.ColumnCount(); col++ {
@@ -78,8 +78,10 @@ func (f *FilterOperator) Execute(ctx context.Context, input *storage.DataChunk) 
 			}
 		}
 	}
-	
-	output.SetSize(len(selection))
+
+	if err := output.SetSize(len(selection)); err != nil {
+		return nil, fmt.Errorf("failed to set output size: %w", err)
+	}
 	return output, nil
 }
 
@@ -92,17 +94,17 @@ func (f *FilterOperator) evaluatePredicate(chunk *storage.DataChunk, row int) (b
 			columnNames: f.columnNames,
 		}
 	}
-	
+
 	result, err := evaluateExpressionWithContext(f.predicate, chunk, row, ctx)
 	if err != nil {
 		return false, err
 	}
-	
+
 	// Convert result to boolean
 	if result == nil {
 		return false, nil // NULL is treated as false
 	}
-	
+
 	switch v := result.(type) {
 	case bool:
 		return v, nil
@@ -124,10 +126,10 @@ func (f *FilterOperator) GetOutputSchema() []storage.LogicalType {
 
 // ProjectOperator projects columns based on expressions
 type ProjectOperator struct {
-	expressions []Expression
-	inputSchema []storage.LogicalType
+	expressions  []Expression
+	inputSchema  []storage.LogicalType
 	outputSchema []storage.LogicalType
-	columnNames []string // Column names for context
+	columnNames  []string // Column names for context
 }
 
 // NewProjectOperator creates a new projection operator
@@ -142,7 +144,7 @@ func NewProjectOperatorWithContext(expressions []Expression, inputSchema []stora
 	for i, expr := range expressions {
 		outputSchema[i] = inferExpressionType(expr, inputSchema)
 	}
-	
+
 	return &ProjectOperator{
 		expressions:  expressions,
 		inputSchema:  inputSchema,
@@ -158,10 +160,10 @@ func (p *ProjectOperator) Execute(ctx context.Context, input *storage.DataChunk)
 		output := storage.NewDataChunk(p.outputSchema, 0)
 		return output, nil
 	}
-	
+
 	// Create output chunk
 	output := storage.NewDataChunk(p.outputSchema, input.Size())
-	
+
 	// Create evaluation context if we have column names
 	var evalCtx *EvaluationContext
 	if p.columnNames != nil {
@@ -169,30 +171,32 @@ func (p *ProjectOperator) Execute(ctx context.Context, input *storage.DataChunk)
 			columnNames: p.columnNames,
 		}
 	}
-	
+
 	// Evaluate each expression for each row
-	for row := 0; row < input.Size(); row++ {
+	for row := range input.Size() { // for row := 0; row < input.Size(); row++ {
 		for col, expr := range p.expressions {
-			var val interface{}
+			var val any
 			var err error
-			
+
 			if evalCtx != nil {
 				val, err = evaluateExpressionWithContext(expr, input, row, evalCtx)
 			} else {
 				val, err = evaluateExpression(expr, input, row)
 			}
-			
+
 			if err != nil {
 				return nil, fmt.Errorf("projection error at col %d, row %d: %w", col, row, err)
 			}
-			
+
 			if err := output.SetValue(col, row, val); err != nil {
 				return nil, err
 			}
 		}
 	}
-	
-	output.SetSize(input.Size())
+
+	if err := output.SetSize(input.Size()); err != nil {
+		return nil, fmt.Errorf("failed to set output size: %w", err)
+	}
 	return output, nil
 }
 
@@ -230,17 +234,17 @@ func (s *SortOperator) Execute(ctx context.Context, input *storage.DataChunk) (*
 	if input == nil || input.Size() <= 1 {
 		return input, nil
 	}
-	
+
 	// Create row indices for sorting
 	indices := make([]int, input.Size())
 	for i := range indices {
 		indices[i] = i
 	}
-	
+
 	// Sort indices based on order by expressions
 	sort.Slice(indices, func(i, j int) bool {
 		rowI, rowJ := indices[i], indices[j]
-		
+
 		// Compare based on each order by expression
 		for _, orderExpr := range s.orderBy {
 			// Create evaluation context if we have column names
@@ -250,14 +254,14 @@ func (s *SortOperator) Execute(ctx context.Context, input *storage.DataChunk) (*
 					columnNames: s.columnNames,
 				}
 			}
-			
+
 			valI, errI := evaluateExpressionWithContext(orderExpr.Expr, input, rowI, evalCtx)
 			valJ, errJ := evaluateExpressionWithContext(orderExpr.Expr, input, rowJ, evalCtx)
-			
+
 			if errI != nil || errJ != nil {
 				return false
 			}
-			
+
 			cmp := compareValues(valI, valJ)
 			if cmp != 0 {
 				if orderExpr.Desc {
@@ -266,16 +270,16 @@ func (s *SortOperator) Execute(ctx context.Context, input *storage.DataChunk) (*
 				return cmp < 0
 			}
 		}
-		
+
 		return false
 	})
-	
+
 	// Create output chunk with sorted data
 	output := storage.NewDataChunk(s.schema, input.Size())
-	
+
 	// Copy rows in sorted order
 	for outRow, inRow := range indices {
-		for col := 0; col < input.ColumnCount(); col++ {
+		for col := range input.ColumnCount() { // for col := 0; col < input.ColumnCount(); col++ {
 			val, err := input.GetValue(col, inRow)
 			if err != nil {
 				return nil, err
@@ -285,8 +289,10 @@ func (s *SortOperator) Execute(ctx context.Context, input *storage.DataChunk) (*
 			}
 		}
 	}
-	
-	output.SetSize(input.Size())
+
+	if err := output.SetSize(input.Size()); err != nil {
+		return nil, fmt.Errorf("failed to set output size: %w", err)
+	}
 	return output, nil
 }
 
@@ -317,11 +323,11 @@ func (l *LimitOperator) Execute(ctx context.Context, input *storage.DataChunk) (
 	if input == nil || input.Size() == 0 {
 		return input, nil
 	}
-	
+
 	// Calculate how many rows to skip and take
 	startRow := 0
 	endRow := input.Size()
-	
+
 	// Apply offset
 	if l.consumed < l.offset {
 		skip := int(l.offset - l.consumed)
@@ -329,36 +335,33 @@ func (l *LimitOperator) Execute(ctx context.Context, input *storage.DataChunk) (
 			l.consumed += int64(input.Size())
 			// Return empty chunk
 			empty := storage.NewDataChunk(l.schema, 0)
-			empty.SetSize(0)
+			_ = empty.SetSize(0) // Empty chunk size setting not critical
 			return empty, nil
 		}
 		startRow = skip
 	}
-	
+
 	// Apply limit
-	alreadyProduced := l.consumed - l.offset
-	if alreadyProduced < 0 {
-		alreadyProduced = 0
-	}
+	alreadyProduced := max(l.consumed-l.offset, 0)
 	remaining := l.limit - alreadyProduced
 	if remaining <= 0 {
 		// Already reached limit
 		empty := storage.NewDataChunk(l.schema, 0)
-		empty.SetSize(0)
+		_ = empty.SetSize(0) // Empty chunk size setting not critical
 		return empty, nil
 	}
-	
+
 	if int64(endRow-startRow) > remaining {
 		endRow = startRow + int(remaining)
 	}
-	
+
 	// Create output chunk
 	outputSize := endRow - startRow
 	output := storage.NewDataChunk(l.schema, outputSize)
-	
+
 	// Copy selected rows
-	for i := 0; i < outputSize; i++ {
-		for col := 0; col < input.ColumnCount(); col++ {
+	for i := range outputSize {
+		for col := range input.ColumnCount() {
 			val, err := input.GetValue(col, startRow+i)
 			if err != nil {
 				return nil, err
@@ -368,10 +371,12 @@ func (l *LimitOperator) Execute(ctx context.Context, input *storage.DataChunk) (
 			}
 		}
 	}
-	
-	output.SetSize(outputSize)
+
+	if err := output.SetSize(outputSize); err != nil {
+		return nil, fmt.Errorf("failed to set output size: %w", err)
+	}
 	l.consumed += int64(input.Size())
-	
+
 	return output, nil
 }
 
@@ -389,12 +394,12 @@ type EvaluationContext struct {
 }
 
 // evaluateExpression evaluates an expression for a specific row
-func evaluateExpression(expr Expression, chunk *storage.DataChunk, row int) (interface{}, error) {
+func evaluateExpression(expr Expression, chunk *storage.DataChunk, row int) (any, error) {
 	return evaluateExpressionWithContext(expr, chunk, row, nil)
 }
 
 // evaluateExpressionWithContext evaluates an expression with optional context
-func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, row int, ctx *EvaluationContext) (interface{}, error) {
+func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, row int, ctx *EvaluationContext) (any, error) {
 	switch e := expr.(type) {
 	case *ColumnExpr:
 		// Find column by name
@@ -402,17 +407,18 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 		if e.Column == "*" {
 			return nil, fmt.Errorf("* not supported in expression evaluation")
 		}
-		
+
 		// If we have context with column names, use it
 		if ctx != nil && ctx.columnNames != nil {
 			// Handle qualified column names (table.column)
 			if e.Table != "" {
 				// For qualified names, we need to handle table aliases and JOIN context
 				targetColumn := e.Column
-				
+
 				// Special handling for common JOIN patterns
-				
-				if e.Table == "c" || e.Table == "customers" {
+
+				switch e.Table {
+				case "c", "customers":
 					// Look for column in the left table (first part of JOIN result)
 					// FROM customers c LEFT JOIN orders o puts customers first
 					// customers table has columns: id, name, email, region
@@ -426,10 +432,10 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 					case "region":
 						colIdx = 3
 					}
-				} else if e.Table == "o" || e.Table == "orders" {
+				case "o", "orders":
 					// Check total column count to determine context
 					totalCols := len(ctx.columnNames)
-					
+
 					if totalCols <= 4 {
 						// Simple orders table scan (not a JOIN)
 						// orders table has columns: id, customer_id, amount, order_date (up to 4)
@@ -450,35 +456,35 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 					} else {
 						// JOIN context - orders table is the right side
 						// orders columns start after customers columns
-						leftTableCols := 4  // customers table has 4 columns
-						
+						leftTableCols := 4 // customers table has 4 columns
+
 						if totalCols == 7 {
 							// Missing order_date column, so adjust positions
 							switch targetColumn {
 							case "id":
-								colIdx = leftTableCols + 0  // position 4
+								colIdx = leftTableCols + 0 // position 4
 							case "customer_id":
-								colIdx = leftTableCols + 1  // position 5
+								colIdx = leftTableCols + 1 // position 5
 							case "amount":
-								colIdx = leftTableCols + 2  // position 6
-							// order_date not available in 7-column schema
+								colIdx = leftTableCols + 2 // position 6
+								// order_date not available in 7-column schema
 							}
 						} else {
 							// Full 8-column JOIN schema
 							switch targetColumn {
 							case "id":
-								colIdx = leftTableCols + 0  // position 4
+								colIdx = leftTableCols + 0 // position 4
 							case "customer_id":
-								colIdx = leftTableCols + 1  // position 5
+								colIdx = leftTableCols + 1 // position 5
 							case "amount":
-								colIdx = leftTableCols + 2  // position 6
+								colIdx = leftTableCols + 2 // position 6
 							case "order_date":
-								colIdx = leftTableCols + 3  // position 7
+								colIdx = leftTableCols + 3 // position 7
 							}
 						}
 					}
 				}
-				
+
 				// Fallback: search for unqualified column name
 				if colIdx == -1 {
 					for i, name := range ctx.columnNames {
@@ -488,7 +494,7 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 						}
 					}
 				}
-				
+
 				// Final fallback: for qualified columns, try to match just the column name
 				// This handles cases where qualified column logic didn't match but the column exists
 				if colIdx == -1 && e.Table != "" {
@@ -507,7 +513,7 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 						break
 					}
 				}
-				
+
 				// Special handling for common aggregate aliases in HAVING clauses
 				if colIdx == -1 {
 					switch e.Column {
@@ -557,9 +563,9 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 			case "region":
 				// For analytics_table (4 columns: id, category, region, amount), region is column 2
 				if chunk.ColumnCount() == 4 {
-					colIdx = 2  // analytics_table
+					colIdx = 2 // analytics_table
 				} else {
-					colIdx = 2  // Default position for region
+					colIdx = 2 // Default position for region
 				}
 			case "value":
 				// Value can be column 1 or 2
@@ -584,9 +590,9 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 				// For orders table specifically, customer_id is column 1
 				// But need to check table context
 				if chunk.ColumnCount() == 4 {
-					colIdx = 1  // orders table
+					colIdx = 1 // orders table
 				} else {
-					colIdx = 0  // might be other context
+					colIdx = 0 // might be other context
 				}
 			case "amount":
 				// For orders table (4 columns), amount is column 2
@@ -595,15 +601,15 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 				// For test_table (3 columns: id, category, amount), amount is column 2
 				// For test_table (4 columns: id, category, amount, quantity), amount is column 2
 				if chunk.ColumnCount() == 3 {
-					colIdx = 2  // test_table with id, category, amount
+					colIdx = 2 // test_table with id, category, amount
 				} else if chunk.ColumnCount() == 4 {
-					colIdx = 2  // orders table
+					colIdx = 2 // orders table
 				} else if chunk.ColumnCount() == 6 {
-					colIdx = 3  // analytics_table with created_at
+					colIdx = 3 // analytics_table with created_at
 				} else if chunk.ColumnCount() == 5 {
-					colIdx = 3  // analytics_table without created_at
+					colIdx = 3 // analytics_table without created_at
 				} else {
-					colIdx = 1  // might be aggregated result
+					colIdx = 1 // might be aggregated result
 				}
 			case "email":
 				colIdx = 2
@@ -619,40 +625,40 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 					colIdx = 0
 				}
 			}
-			
+
 			// Ensure column index is valid
 			if colIdx >= chunk.ColumnCount() {
 				colIdx = chunk.ColumnCount() - 1
 			}
 		}
-		
+
 		return chunk.GetValue(colIdx, row)
-		
+
 	case *ConstantExpr:
 		return e.Value, nil
-		
+
 	case *ParameterExpr:
 		// Parameters should have been bound before evaluation
 		return nil, fmt.Errorf("unbound parameter at index %d", e.Index)
-		
+
 	case *FunctionExpr:
 		// Function expressions should be handled by aggregate operators
 		// For non-aggregate functions, we'd implement them here
 		return nil, fmt.Errorf("function %s not implemented in expression evaluation", e.Name)
-		
+
 	case *BinaryExpr:
 		left, err := evaluateExpressionWithContext(e.Left, chunk, row, ctx)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		right, err := evaluateExpressionWithContext(e.Right, chunk, row, ctx)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		return evaluateBinaryOp(left, e.Op, right)
-		
+
 	case *SubqueryExpr:
 		// For scalar subqueries, evaluate and return single value
 		// For EXISTS subqueries, return boolean
@@ -687,19 +693,19 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 		default:
 			return nil, fmt.Errorf("unsupported subquery type: %d", e.Type)
 		}
-		
+
 	default:
 		return nil, fmt.Errorf("unsupported expression type: %T", expr)
 	}
 }
 
 // evaluateBinaryOp evaluates a binary operation
-func evaluateBinaryOp(left interface{}, op BinaryOp, right interface{}) (interface{}, error) {
+func evaluateBinaryOp(left any, op BinaryOp, right any) (any, error) {
 	// Handle NULL values
 	if left == nil || right == nil {
 		return nil, nil
 	}
-	
+
 	switch op {
 	case OpEq:
 		return compareValues(left, right) == 0, nil
@@ -758,7 +764,7 @@ func evaluateBinaryOp(left interface{}, op BinaryOp, right interface{}) (interfa
 }
 
 // compareValues compares two values
-func compareValues(a, b interface{}) int {
+func compareValues(a, b any) int {
 	// Handle timestamp comparisons
 	if aTime, aIsTime := a.(time.Time); aIsTime {
 		if bTime, bIsTime := b.(time.Time); bIsTime {
@@ -770,7 +776,7 @@ func compareValues(a, b interface{}) int {
 			return 0
 		}
 	}
-	
+
 	// Handle int64 timestamp comparisons (Unix timestamps)
 	if aInt64, aIsInt64 := a.(int64); aIsInt64 {
 		if bInt64, bIsInt64 := b.(int64); bIsInt64 {
@@ -782,12 +788,12 @@ func compareValues(a, b interface{}) int {
 			return 0
 		}
 	}
-	
+
 	// Convert both values to comparable types
 	// Try to convert to float64 for numeric comparisons
 	aFloat, aIsNum := toFloat64(a)
 	bFloat, bIsNum := toFloat64(b)
-	
+
 	if aIsNum && bIsNum {
 		if aFloat < bFloat {
 			return -1
@@ -796,11 +802,11 @@ func compareValues(a, b interface{}) int {
 		}
 		return 0
 	}
-	
+
 	// String comparison
 	aStr := fmt.Sprintf("%v", a)
 	bStr := fmt.Sprintf("%v", b)
-	
+
 	if aStr < bStr {
 		return -1
 	} else if aStr > bStr {
@@ -810,7 +816,7 @@ func compareValues(a, b interface{}) int {
 }
 
 // toFloat64 attempts to convert a value to float64
-func toFloat64(v interface{}) (float64, bool) {
+func toFloat64(v any) (float64, bool) {
 	switch val := v.(type) {
 	case int:
 		return float64(val), true
@@ -840,7 +846,7 @@ func matchLike(text, pattern string) bool {
 	// _ -> .
 	// Escape other regex special characters
 	regexPattern := ""
-	for i := 0; i < len(pattern); i++ {
+	for i := range len(pattern) {
 		switch pattern[i] {
 		case '%':
 			regexPattern += ".*"
@@ -852,10 +858,10 @@ func matchLike(text, pattern string) bool {
 			regexPattern += string(pattern[i])
 		}
 	}
-	
+
 	// The pattern should match the entire string
 	regexPattern = "^" + regexPattern + "$"
-	
+
 	// Simple implementation - compile regex each time
 	// In production, we'd cache compiled patterns
 	matched, _ := regexp.MatchString(regexPattern, text)
@@ -863,7 +869,7 @@ func matchLike(text, pattern string) bool {
 }
 
 // toBool converts a value to boolean
-func toBool(v interface{}) (bool, error) {
+func toBool(v any) (bool, error) {
 	switch val := v.(type) {
 	case bool:
 		return val, nil
@@ -879,7 +885,7 @@ func toBool(v interface{}) (bool, error) {
 }
 
 // Arithmetic operations
-func addValues(a, b interface{}) (interface{}, error) {
+func addValues(a, b any) (any, error) {
 	switch va := a.(type) {
 	case int32:
 		if vb, ok := b.(int32); ok {
@@ -897,7 +903,7 @@ func addValues(a, b interface{}) (interface{}, error) {
 	return nil, fmt.Errorf("cannot add %T and %T", a, b)
 }
 
-func subtractValues(a, b interface{}) (interface{}, error) {
+func subtractValues(a, b any) (any, error) {
 	switch va := a.(type) {
 	case int32:
 		if vb, ok := b.(int32); ok {
@@ -915,7 +921,7 @@ func subtractValues(a, b interface{}) (interface{}, error) {
 	return nil, fmt.Errorf("cannot subtract %T and %T", a, b)
 }
 
-func multiplyValues(a, b interface{}) (interface{}, error) {
+func multiplyValues(a, b any) (any, error) {
 	switch va := a.(type) {
 	case int32:
 		if vb, ok := b.(int32); ok {
@@ -933,7 +939,7 @@ func multiplyValues(a, b interface{}) (interface{}, error) {
 	return nil, fmt.Errorf("cannot multiply %T and %T", a, b)
 }
 
-func divideValues(a, b interface{}) (interface{}, error) {
+func divideValues(a, b any) (any, error) {
 	switch va := a.(type) {
 	case int32:
 		if vb, ok := b.(int32); ok {
@@ -968,8 +974,9 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 		if e.Table != "" {
 			// For qualified columns, we need to map based on JOIN context
 			// In a JOIN result, we have: [left_table_columns...] [right_table_columns...]
-			
-			if e.Table == "o" || e.Table == "orders" {
+
+			switch e.Table {
+			case "o", "orders":
 				// Orders table columns: id(int), customer_id(int), amount(double), order_date(timestamp)
 				switch e.Column {
 				case "id":
@@ -981,7 +988,7 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 				case "order_date":
 					return storage.LogicalType{ID: storage.TypeTimestamp}
 				}
-			} else if e.Table == "c" || e.Table == "customers" {
+			case "c", "customers":
 				// Customers table columns: id(int), name(varchar), email(varchar), region(varchar)
 				switch e.Column {
 				case "id":
@@ -994,11 +1001,11 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 					return storage.LogicalType{ID: storage.TypeVarchar}
 				}
 			}
-			
+
 			// Fallback for unknown qualified columns
 			return storage.LogicalType{ID: storage.TypeVarchar}
 		}
-		
+
 		// Map unqualified column names to types based on position
 		colIdx := -1
 		switch e.Column {
@@ -1006,13 +1013,13 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 			colIdx = 0
 		case "category":
 			if len(schema) == 2 {
-				colIdx = 0  // Simple 2-column case
+				colIdx = 0 // Simple 2-column case
 			} else if len(schema) == 3 {
-				colIdx = 0  // GROUP BY output: category, count, total
+				colIdx = 0 // GROUP BY output: category, count, total
 			} else if len(schema) == 7 {
-				colIdx = 0  // GROUP BY output with more aggregates: category, count, total, average, min_amount, max_amount, std_dev
+				colIdx = 0 // GROUP BY output with more aggregates: category, count, total, average, min_amount, max_amount, std_dev
 			} else {
-				colIdx = 1  // Full table schema (5 or 6 columns)
+				colIdx = 1 // Full table schema (5 or 6 columns)
 			}
 		case "name":
 			colIdx = 1
@@ -1021,22 +1028,22 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 			if len(schema) == 4 {
 				colIdx = 2
 			} else {
-				colIdx = 2  // Default to column 2 for region
+				colIdx = 2 // Default to column 2 for region
 			}
 		case "amount":
 			// For test_table (2 columns: id, amount), amount is column 1
 			// For analytics_table (6 columns: id, category, region, amount, quantity, created_at), amount is column 3
 			// For orders table (4 columns), amount is column 2
 			if len(schema) == 2 {
-				colIdx = 1  // test_table with id, amount
+				colIdx = 1 // test_table with id, amount
 			} else if len(schema) == 4 {
-				colIdx = 2  // orders table
+				colIdx = 2 // orders table
 			} else if len(schema) == 6 {
-				colIdx = 3  // analytics_table
+				colIdx = 3 // analytics_table
 			} else if len(schema) == 5 {
-				colIdx = 3  // analytics_table without created_at
+				colIdx = 3 // analytics_table without created_at
 			} else {
-				colIdx = 2  // Default position
+				colIdx = 2 // Default position
 			}
 		case "value":
 			if len(schema) == 2 {
@@ -1047,7 +1054,7 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 		case "score", "age":
 			colIdx = 2
 		}
-		
+
 		if colIdx >= 0 && colIdx < len(schema) {
 			return schema[colIdx]
 		}

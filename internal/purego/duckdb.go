@@ -136,7 +136,7 @@ func New() (*DuckDB, error) {
 
 	// Register all required functions
 	if err := db.registerFunctions(); err != nil {
-		lib.Close()
+		_ = lib.Close() // Library closing errors not critical in error path
 		return nil, err
 	}
 

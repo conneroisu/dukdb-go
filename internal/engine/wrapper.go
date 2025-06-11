@@ -36,7 +36,7 @@ func (w *PureGoWrapper) Open(path string) (purego.Database, error) {
 // CloseDatabase closes a database
 func (w *PureGoWrapper) CloseDatabase(db purego.Database) {
 	if w.database != nil {
-		w.database.Close()
+		_ = w.database.Close() // Database closing errors not critical for cleanup
 		w.database = nil
 	}
 }
@@ -61,7 +61,7 @@ func (w *PureGoWrapper) Disconnect(conn purego.Connection) {
 	// Find and close connection
 	w.database.connections.Range(func(key, value interface{}) bool {
 		if c, ok := value.(*Connection); ok && c.id == uint64(conn) {
-			c.Close()
+			_ = c.Close() // Connection closing errors not critical in cleanup
 			return false
 		}
 		return true

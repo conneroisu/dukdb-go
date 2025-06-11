@@ -39,13 +39,13 @@ func (r *Rows) Columns() []string {
 // Close closes the rows iterator
 func (r *Rows) Close() error {
 	if r.engineResult != nil {
-		r.engineResult.Close()
+		_ = r.engineResult.Close() // Closing errors are not critical during cleanup
 		r.engineResult = nil
 	}
 
 	// Close the statement if this came from a prepared statement
 	if r.stmt != nil {
-		r.stmt.Close()
+		_ = r.stmt.Close() // Closing errors are not critical during cleanup
 		r.stmt = nil
 	}
 

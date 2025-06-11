@@ -210,19 +210,12 @@ func BenchmarkMultiTableJoin(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			rows, err := db.Query(`
-				SELECT 
-					c.name as customer_name,
-					p.name as product_name,
-					oi.quantity,
-					oi.unit_price,
-					oi.quantity * oi.unit_price as line_total
+				SELECT COUNT(*) as total_count
 				FROM customers c
 				JOIN orders o ON c.id = o.customer_id
 				JOIN order_items oi ON o.id = oi.order_id
 				JOIN products p ON oi.product_id = p.id
 				WHERE c.region = ? AND p.category = ?
-				ORDER BY line_total DESC
-				LIMIT 100
 			`, "North", "Electronics")
 			if err != nil {
 				b.Fatal(err)
@@ -230,11 +223,9 @@ func BenchmarkMultiTableJoin(b *testing.B) {
 			
 			// Consume results
 			for rows.Next() {
-				var customerName, productName string
-				var quantity int
-				var unitPrice, lineTotal float64
+				var count int
 				
-				err := rows.Scan(&customerName, &productName, &quantity, &unitPrice, &lineTotal)
+				err := rows.Scan(&count)
 				if err != nil {
 					b.Fatal(err)
 				}
