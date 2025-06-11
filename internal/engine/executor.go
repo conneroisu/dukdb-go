@@ -36,6 +36,10 @@ func (e *Executor) Execute(ctx context.Context, plan Plan) (*QueryResult, error)
 		return e.executeLimit(ctx, p)
 	case *InsertPlan:
 		return e.executeInsert(ctx, p)
+	case *UpdatePlan:
+		return e.executeUpdate(ctx, p)
+	case *DeletePlan:
+		return e.executeDelete(ctx, p)
 	case *CreateTablePlan:
 		return e.executeCreateTable(ctx, p)
 	case *DropTablePlan:
@@ -44,6 +48,8 @@ func (e *Executor) Execute(ctx context.Context, plan Plan) (*QueryResult, error)
 		return e.executeTransaction(ctx, p)
 	case *AggregatePlan:
 		return e.executeAggregate(ctx, p)
+	case *JoinPlan:
+		return e.executeJoin(ctx, p)
 	default:
 		return nil, fmt.Errorf("unsupported plan type: %T", plan)
 	}
@@ -138,11 +144,13 @@ func (e *Executor) executeProject(ctx context.Context, plan *ProjectPlan) (*Quer
 	
 	// Create projection operator
 	inputSchema := make([]storage.LogicalType, len(childResult.columns))
+	columnNames := make([]string, len(childResult.columns))
 	for i, col := range childResult.columns {
 		inputSchema[i] = col.Type
+		columnNames[i] = col.Name
 	}
 	
-	projOp := NewProjectOperator(plan.Expressions, inputSchema)
+	projOp := NewProjectOperatorWithContext(plan.Expressions, inputSchema, columnNames)
 	
 	// Process each chunk
 	var outputChunks []*storage.DataChunk
@@ -247,6 +255,7 @@ func (e *Executor) executeSort(ctx context.Context, plan *SortPlan) (*QueryResul
 			current: -1,
 		}, nil
 	}
+
 	
 	// For simplicity, merge all chunks into one for sorting
 	// In production, we'd use a more sophisticated approach
@@ -269,8 +278,13 @@ func (e *Executor) executeSort(ctx context.Context, plan *SortPlan) (*QueryResul
 	}
 	mergedChunk.SetSize(totalSize)
 	
-	// Sort the merged chunk
-	sortOp := NewSortOperator(plan.OrderBy, inputSchema)
+	// Sort the merged chunk with column names for alias resolution
+	columnNames := make([]string, len(childResult.columns))
+	for i, col := range childResult.columns {
+		columnNames[i] = col.Name
+	}
+	
+	sortOp := NewSortOperatorWithContext(plan.OrderBy, inputSchema, columnNames)
 	sortedChunk, err := sortOp.Execute(ctx, mergedChunk)
 	if err != nil {
 		return nil, err
@@ -400,6 +414,150 @@ func (e *Executor) executeTransaction(ctx context.Context, plan *TransactionPlan
 	}, nil
 }
 
+// executeUpdate executes an update operation
+func (e *Executor) executeUpdate(ctx context.Context, plan *UpdatePlan) (*QueryResult, error) {
+	// For now, implement a simple update by scanning all rows,
+	// evaluating WHERE clause, and updating matching rows
+	
+	// Get all data chunks
+	chunks, err := plan.Table.Scan()
+	if err != nil {
+		return nil, fmt.Errorf("scan failed: %w", err)
+	}
+	
+	// Get column definitions
+	columnDefs := plan.Table.GetColumns()
+	columnMap := make(map[string]int)
+	for i, col := range columnDefs {
+		columnMap[col.Name] = i
+	}
+	
+	// Count updated rows
+	updatedRows := 0
+	
+	// Process each chunk
+	for _, chunk := range chunks {
+		for row := 0; row < chunk.Size(); row++ {
+			// Evaluate WHERE clause if present
+			shouldUpdate := true
+			if plan.Where != nil {
+				match, err := evaluateWhereClause(plan.Where, chunk, row, columnDefs)
+				if err != nil {
+					return nil, fmt.Errorf("WHERE clause error at row %d: %w", row, err)
+				}
+				shouldUpdate = match
+			}
+			
+			if shouldUpdate {
+				// Apply SET clauses
+				for _, set := range plan.Sets {
+					colIdx, exists := columnMap[set.Column]
+					if !exists {
+						return nil, fmt.Errorf("column %s not found", set.Column)
+					}
+					
+					// Evaluate the value expression
+					value, err := evaluateExpression(set.Value, chunk, row)
+					if err != nil {
+						return nil, err
+					}
+					
+					// Update the value
+					if err := chunk.SetValue(colIdx, row, value); err != nil {
+						return nil, err
+					}
+				}
+				
+				updatedRows++
+			}
+		}
+	}
+	
+	// Return result with row count
+	return &QueryResult{
+		chunks:  []*storage.DataChunk{},
+		columns: []Column{},
+		rowsAffected: int64(updatedRows),
+	}, nil
+}
+
+// executeDelete executes a delete operation
+func (e *Executor) executeDelete(ctx context.Context, plan *DeletePlan) (*QueryResult, error) {
+	// For now, implement a simple delete by scanning all rows,
+	// evaluating WHERE clause, and removing matching rows
+	
+	// Get all data chunks
+	chunks, err := plan.Table.Scan()
+	if err != nil {
+		return nil, fmt.Errorf("scan failed: %w", err)
+	}
+	
+	// Get column definitions
+	columnDefs := plan.Table.GetColumns()
+	
+	// Create new chunks without deleted rows
+	newChunks := make([]*storage.DataChunk, 0)
+	deletedRows := 0
+	
+	// Get logical types from column definitions
+	types := make([]storage.LogicalType, len(columnDefs))
+	for i, col := range columnDefs {
+		types[i] = col.Type
+	}
+	
+	// Process each chunk
+	for _, chunk := range chunks {
+		// Create a new chunk for non-deleted rows
+		newChunk := storage.NewDataChunk(types, chunk.Capacity())
+		newRowIdx := 0
+		
+		for row := 0; row < chunk.Size(); row++ {
+			// Evaluate WHERE clause if present
+			shouldDelete := true
+			if plan.Where != nil {
+				match, err := evaluateWhereClause(plan.Where, chunk, row, columnDefs)
+				if err != nil {
+					return nil, err
+				}
+				shouldDelete = match
+			}
+			
+			if shouldDelete {
+				deletedRows++
+			} else {
+				// Copy row to new chunk
+				for col := 0; col < chunk.ColumnCount(); col++ {
+					val, err := chunk.GetValue(col, row)
+					if err != nil {
+						return nil, err
+					}
+					if err := newChunk.SetValue(col, newRowIdx, val); err != nil {
+						return nil, err
+					}
+				}
+				newRowIdx++
+			}
+		}
+		
+		if newRowIdx > 0 {
+			newChunk.SetSize(newRowIdx)
+			newChunks = append(newChunks, newChunk)
+		}
+	}
+	
+	// Update table data with new chunks
+	if err := plan.Table.ReplaceChunks(newChunks); err != nil {
+		return nil, fmt.Errorf("failed to update table: %w", err)
+	}
+	
+	// Return result with row count
+	return &QueryResult{
+		chunks:  []*storage.DataChunk{},
+		columns: []Column{},
+		rowsAffected: int64(deletedRows),
+	}, nil
+}
+
 // executeDropTable executes a drop table operation
 func (e *Executor) executeDropTable(ctx context.Context, plan *DropTablePlan) (*QueryResult, error) {
 	// Drop table from catalog
@@ -413,4 +571,298 @@ func (e *Executor) executeDropTable(ctx context.Context, plan *DropTablePlan) (*
 		chunks:  []*storage.DataChunk{},
 		columns: []Column{},
 	}, nil
+}
+
+// evaluateWhereClause evaluates a WHERE clause expression for a specific row
+func evaluateWhereClause(where Expression, chunk *storage.DataChunk, row int, columnDefs []ColumnDefinition) (bool, error) {
+	// Create column name mapping for evaluation context
+	columnNames := make([]string, len(columnDefs))
+	for i, col := range columnDefs {
+		columnNames[i] = col.Name
+	}
+	
+	// Create evaluation context
+	ctx := &EvaluationContext{
+		columnNames: columnNames,
+	}
+	
+	// Evaluate the expression
+	result, err := evaluateExpressionWithContext(where, chunk, row, ctx)
+	if err != nil {
+		return false, err
+	}
+	
+	// Convert result to boolean
+	if result == nil {
+		return false, nil // NULL is treated as false
+	}
+	
+	switch v := result.(type) {
+	case bool:
+		return v, nil
+	case int32:
+		return v != 0, nil
+	case int64:
+		return v != 0, nil
+	case float64:
+		return v != 0, nil
+	default:
+		return false, fmt.Errorf("cannot convert %T to boolean for WHERE clause", result)
+	}
+}
+
+// executeJoin executes a JOIN operation
+func (e *Executor) executeJoin(ctx context.Context, plan *JoinPlan) (*QueryResult, error) {
+	// Execute left and right child plans
+	leftResult, err := e.Execute(ctx, plan.Left)
+	if err != nil {
+		return nil, fmt.Errorf("join left child failed: %w", err)
+	}
+	
+	rightResult, err := e.Execute(ctx, plan.Right)
+	if err != nil {
+		return nil, fmt.Errorf("join right child failed: %w", err)
+	}
+	
+	// Collect all data from both sides
+	leftChunks, err := collectAllChunks(leftResult)
+	if err != nil {
+		return nil, fmt.Errorf("collecting left chunks: %w", err)
+	}
+	
+	rightChunks, err := collectAllChunks(rightResult)
+	if err != nil {
+		return nil, fmt.Errorf("collecting right chunks: %w", err)
+	}
+	
+	// Build output schema (left columns + right columns)
+	leftColumns := leftResult.columns
+	rightColumns := rightResult.columns
+	outputColumns := make([]Column, 0, len(leftColumns)+len(rightColumns))
+	outputColumns = append(outputColumns, leftColumns...)
+	outputColumns = append(outputColumns, rightColumns...)
+	
+	outputSchema := make([]storage.LogicalType, len(outputColumns))
+	for i, col := range outputColumns {
+		outputSchema[i] = col.Type
+	}
+	
+	// Perform nested loop join (simple but functional implementation)
+	var resultChunks []*storage.DataChunk
+	const chunkSize = 1000
+	
+	// Create current output chunk
+	var currentChunk *storage.DataChunk
+	currentSize := 0
+	
+	// For each left row
+	for _, leftChunk := range leftChunks {
+		for leftRow := 0; leftRow < leftChunk.Size(); leftRow++ {
+			// For each right row
+			for _, rightChunk := range rightChunks {
+				for rightRow := 0; rightRow < rightChunk.Size(); rightRow++ {
+					// Evaluate join condition
+					matches, err := e.evaluateJoinCondition(plan.Condition, leftChunk, leftRow, rightChunk, rightRow, leftColumns, rightColumns)
+					if err != nil {
+						return nil, fmt.Errorf("join condition evaluation: %w", err)
+					}
+					
+					// If condition matches (or no condition for cross join)
+					if matches || plan.Condition == nil {
+						// Create new chunk if needed
+						if currentChunk == nil || currentSize >= chunkSize {
+							if currentChunk != nil {
+								currentChunk.SetSize(currentSize)
+								resultChunks = append(resultChunks, currentChunk)
+							}
+							currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
+							currentSize = 0
+						}
+						
+						// Copy left columns
+						for col := 0; col < leftChunk.ColumnCount(); col++ {
+							val, err := leftChunk.GetValue(col, leftRow)
+							if err != nil {
+								return nil, err
+							}
+							if err := currentChunk.SetValue(col, currentSize, val); err != nil {
+								return nil, err
+							}
+						}
+						
+						// Copy right columns
+						for col := 0; col < rightChunk.ColumnCount(); col++ {
+							val, err := rightChunk.GetValue(col, rightRow)
+							if err != nil {
+								return nil, err
+							}
+							if err := currentChunk.SetValue(leftChunk.ColumnCount()+col, currentSize, val); err != nil {
+								return nil, err
+							}
+						}
+						
+						currentSize++
+					}
+				}
+			}
+			
+			// For LEFT JOIN, if no matches found, add row with NULLs for right side
+			if plan.JoinType == LeftJoin {
+				hasMatch := false
+				for _, rightChunk := range rightChunks {
+					for rightRow := 0; rightRow < rightChunk.Size(); rightRow++ {
+						matches, err := e.evaluateJoinCondition(plan.Condition, leftChunk, leftRow, rightChunk, rightRow, leftColumns, rightColumns)
+						if err != nil {
+							return nil, err
+						}
+						if matches {
+							hasMatch = true
+							break
+						}
+					}
+					if hasMatch {
+						break
+					}
+				}
+				
+				if !hasMatch {
+					// Add left row with NULL right columns
+					if currentChunk == nil || currentSize >= chunkSize {
+						if currentChunk != nil {
+							currentChunk.SetSize(currentSize)
+							resultChunks = append(resultChunks, currentChunk)
+						}
+						currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
+						currentSize = 0
+					}
+					
+					// Copy left columns
+					for col := 0; col < leftChunk.ColumnCount(); col++ {
+						val, err := leftChunk.GetValue(col, leftRow)
+						if err != nil {
+							return nil, err
+						}
+						if err := currentChunk.SetValue(col, currentSize, val); err != nil {
+							return nil, err
+						}
+					}
+					
+					// Set right columns to NULL
+					for col := 0; col < len(rightColumns); col++ {
+						if err := currentChunk.SetValue(leftChunk.ColumnCount()+col, currentSize, nil); err != nil {
+							return nil, err
+						}
+					}
+					
+					currentSize++
+				}
+			}
+		}
+	}
+	
+	// Add final chunk if it has data
+	if currentChunk != nil && currentSize > 0 {
+		currentChunk.SetSize(currentSize)
+		resultChunks = append(resultChunks, currentChunk)
+	}
+	
+	return &QueryResult{
+		chunks:  resultChunks,
+		columns: outputColumns,
+		current: -1,
+	}, nil
+}
+
+// evaluateJoinCondition evaluates a join condition between two rows
+func (e *Executor) evaluateJoinCondition(condition Expression, leftChunk *storage.DataChunk, leftRow int, rightChunk *storage.DataChunk, rightRow int, leftColumns, rightColumns []Column) (bool, error) {
+	if condition == nil {
+		return true, nil // No condition = cross join
+	}
+	
+	// Create a combined evaluation context
+	combinedColumns := make([]string, 0, len(leftColumns)+len(rightColumns))
+	for _, col := range leftColumns {
+		combinedColumns = append(combinedColumns, col.Name)
+	}
+	for _, col := range rightColumns {
+		combinedColumns = append(combinedColumns, col.Name)
+	}
+	
+	// Create a combined chunk for evaluation
+	combinedSchema := make([]storage.LogicalType, len(combinedColumns))
+	for i, col := range leftColumns {
+		combinedSchema[i] = col.Type
+	}
+	for i, col := range rightColumns {
+		combinedSchema[len(leftColumns)+i] = col.Type
+	}
+	
+	combinedChunk := storage.NewDataChunk(combinedSchema, 1)
+	
+	// Copy left values
+	for i := 0; i < leftChunk.ColumnCount(); i++ {
+		val, err := leftChunk.GetValue(i, leftRow)
+		if err != nil {
+			return false, err
+		}
+		if err := combinedChunk.SetValue(i, 0, val); err != nil {
+			return false, err
+		}
+	}
+	
+	// Copy right values
+	for i := 0; i < rightChunk.ColumnCount(); i++ {
+		val, err := rightChunk.GetValue(i, rightRow)
+		if err != nil {
+			return false, err
+		}
+		if err := combinedChunk.SetValue(leftChunk.ColumnCount()+i, 0, val); err != nil {
+			return false, err
+		}
+	}
+	
+	combinedChunk.SetSize(1)
+	
+	// Evaluate condition with combined context
+	ctx := &EvaluationContext{
+		columnNames: combinedColumns,
+	}
+	
+	result, err := evaluateExpressionWithContext(condition, combinedChunk, 0, ctx)
+	if err != nil {
+		return false, err
+	}
+	
+	// Convert to boolean
+	if result == nil {
+		return false, nil
+	}
+	
+	switch v := result.(type) {
+	case bool:
+		return v, nil
+	case int32:
+		return v != 0, nil
+	case int64:
+		return v != 0, nil
+	case float64:
+		return v != 0, nil
+	default:
+		return false, fmt.Errorf("cannot convert %T to boolean for join condition", result)
+	}
+}
+
+
+// collectAllChunks collects all data chunks from a query result
+func collectAllChunks(result *QueryResult) ([]*storage.DataChunk, error) {
+	var chunks []*storage.DataChunk
+	
+	for result.Next() {
+		chunk := result.GetChunk()
+		if chunk != nil {
+			chunks = append(chunks, chunk)
+		}
+	}
+	
+	return chunks, nil
 }

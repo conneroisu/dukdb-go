@@ -318,7 +318,7 @@ func (v *Vector) setFlatValue(pos int, value interface{}) error {
 	case TypeVarchar:
 		val, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("expected string, got %T", value)
+			return fmt.Errorf("expected string, got %T (value: %v)", value, value)
 		}
 		(*(*[]string)(v.data))[pos] = val
 	case TypeDecimal:

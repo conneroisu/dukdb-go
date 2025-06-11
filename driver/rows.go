@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"time"
 
 	"github.com/connerohnesorge/dukdb-go/internal/engine"
 	"github.com/connerohnesorge/dukdb-go/internal/storage"
@@ -83,7 +84,7 @@ func (r *Rows) Next(dest []driver.Value) error {
 		}
 
 		// Convert to driver.Value
-		dest[i] = convertToDriverValue(val)
+		dest[i] = convertToDriverValue(val, r.columns[i].Type)
 	}
 
 	r.chunkRow++
@@ -203,7 +204,7 @@ func (r *Rows) ColumnTypeScanType(index int) reflect.Type {
 	case storage.TypeTime:
 		return reflect.TypeOf(int64(0))
 	case storage.TypeTimestamp:
-		return reflect.TypeOf(int64(0))
+		return reflect.TypeOf(time.Time{})
 	case storage.TypeInterval:
 		return reflect.TypeOf(types.Interval{})
 	case storage.TypeList:
@@ -218,9 +219,17 @@ func (r *Rows) ColumnTypeScanType(index int) reflect.Type {
 }
 
 // convertToDriverValue converts internal values to driver.Value
-func convertToDriverValue(val any) driver.Value {
+func convertToDriverValue(val any, colType storage.LogicalType) driver.Value {
 	if val == nil {
 		return nil
+	}
+
+	// Special handling for timestamp columns
+	if colType.ID == storage.TypeTimestamp {
+		if intVal, ok := val.(int64); ok {
+			// Convert int64 microseconds to time.Time
+			return time.UnixMicro(intVal)
+		}
 	}
 
 	switch v := val.(type) {

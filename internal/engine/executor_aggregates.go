@@ -16,14 +16,22 @@ func (e *Executor) executeAggregate(ctx context.Context, plan *AggregatePlan) (*
 	}
 	defer childResult.Close()
 	
+	
 	// Create schema
 	inputSchema := make([]storage.LogicalType, len(childResult.columns))
 	for i, col := range childResult.columns {
 		inputSchema[i] = col.Type
 	}
 	
-	// Create aggregate operator
-	aggOp := NewAggregateOperator(plan.GroupBy, plan.Aggregates, inputSchema)
+	// Create column names from input schema
+	columnNames := make([]string, len(childResult.columns))
+	for i, col := range childResult.columns {
+		columnNames[i] = col.Name
+	}
+	
+	// Create aggregate operator with context
+	aggOp := NewAggregateOperatorWithContext(plan.GroupBy, plan.Aggregates, inputSchema, columnNames)
+	
 	
 	// For aggregates, we need to process all data
 	// Collect all chunks
@@ -97,6 +105,7 @@ func (e *Executor) executeAggregate(ctx context.Context, plan *AggregatePlan) (*
 	// Create column metadata
 	columns := e.createAggregateColumns(plan, aggOp.GetOutputSchema())
 	
+	
 	return &QueryResult{
 		chunks:  []*storage.DataChunk{resultChunk},
 		columns: columns,
@@ -109,20 +118,28 @@ func (e *Executor) createAggregateColumns(plan *AggregatePlan, schema []storage.
 	columns := make([]Column, len(schema))
 	col := 0
 	
-	// Group by columns
-	for i := range plan.GroupBy {
-		columns[col] = Column{
-			Name: fmt.Sprintf("group_%d", i),
-			Type: schema[col],
+	// Group by columns - use actual column names
+	for _, groupByExpr := range plan.GroupBy {
+		if colExpr, ok := groupByExpr.(*ColumnExpr); ok {
+			columns[col] = Column{
+				Name: colExpr.Column,
+				Type: schema[col],
+			}
+		} else {
+			columns[col] = Column{
+				Name: fmt.Sprintf("group_%d", col),
+				Type: schema[col],
+			}
 		}
 		col++
 	}
 	
-	// Aggregate columns
-	for i, agg := range plan.Aggregates {
+	// Aggregate columns - use aliases if available
+	for _, agg := range plan.Aggregates {
 		name := agg.Alias
 		if name == "" {
-			name = fmt.Sprintf("agg_%d", i)
+			// Generate a simple name
+			name = fmt.Sprintf("agg_%d", col)
 		}
 		columns[col] = Column{
 			Name: name,

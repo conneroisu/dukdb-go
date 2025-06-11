@@ -276,3 +276,28 @@ func (td *TableData) GetRowCount() int64 {
 	return td.rowCount
 }
 
+// ReplaceChunks replaces all data chunks with new ones
+func (t *Table) ReplaceChunks(newChunks []*storage.DataChunk) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	
+	return t.data.ReplaceChunks(newChunks)
+}
+
+// ReplaceChunks replaces all data chunks with new ones
+func (td *TableData) ReplaceChunks(newChunks []*storage.DataChunk) error {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	
+	// Calculate new row count
+	newRowCount := int64(0)
+	for _, chunk := range newChunks {
+		newRowCount += int64(chunk.Size())
+	}
+	
+	td.chunks = newChunks
+	td.rowCount = newRowCount
+	
+	return nil
+}
+

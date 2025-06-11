@@ -61,10 +61,14 @@ func (s *Stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 	if err != nil {
 		return nil, err
 	}
+	
+	// Get rows affected before closing
+	rowsAffected := result.GetRowsAffected()
+	
 	// Close the result since we don't need it for Exec
 	result.Close()
 
-	return &Result{}, nil
+	return &Result{rowsAffected: rowsAffected}, nil
 }
 
 // Query executes a query that returns rows

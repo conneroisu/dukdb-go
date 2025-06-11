@@ -1,53 +1,50 @@
 # DuckDB Pure-Go Driver
 
-A pure-Go implementation of a DuckDB driver for `database/sql`. This driver uses `purego` for FFI instead of CGO, allowing for easier cross-compilation and deployment without C dependencies.
+A pure-Go implementation of a DuckDB driver for `database/sql`. This project aims to provide a fully native Go implementation of DuckDB without CGO dependencies, enabling easy cross-compilation and deployment as static binaries.
 
-## Status
+## Project Status
 
-⚠️ **Early Development** - This driver is in early development and not yet ready for production use.
+🚀 **Active Development** - Core SQL functionality is working with 62.5% of analytical benchmarks passing.
 
-### Completed
+### Recent Major Milestone
+✅ **Analytical Query Support** - Successfully implemented core analytical SQL features including:
+- Complex JOINs with aggregations
+- GROUP BY with HAVING clauses
+- Timestamp handling in aggregate functions
+- Multi-table query support
 
-- ✅ Basic project structure
-- ✅ Purego wrapper for DuckDB C API
-- ✅ database/sql driver interface implementation
-- ✅ Connection management
-- ✅ Query execution (direct and prepared statements)
-- ✅ Transaction support (BEGIN/COMMIT/ROLLBACK)
-- ✅ Basic type support (integers, floats, strings, booleans)
-- ✅ Date/Time types (DATE, TIME, TIMESTAMP)
-- ✅ BLOB type support
-- ✅ Prepared statement parameter binding
-- ✅ NULL value handling
-- ✅ Basic decimal support
-- ✅ UUID type support
-- ✅ Complex types - basic support (LIST, STRUCT, MAP)
-- ✅ HUGEINT (128-bit integer) type definitions
-- ✅ Comprehensive test suite
-- ✅ Nix development environment
-- ✅ CI/CD with GitHub Actions
+See [Analytical Benchmark Status](benchmarks/ANALYTICAL_BENCHMARK_STATUS.md) for detailed results.
 
-### In Progress
+### Implementation Progress
 
-- 🚧 Full complex type integration (native LIST/STRUCT/MAP handling)
-- 🚧 Full decimal type with precision/scale
+#### ✅ Core Engine (Pure-Go)
+- **SQL Parser** - Handles SELECT, INSERT, UPDATE, DELETE, CREATE TABLE
+- **Query Planner** - Logical plan generation with type inference
+- **Query Executor** - Vectorized execution engine
+- **Storage Layer** - Columnar storage with DataChunks
+- **Type System** - All major SQL types including timestamps
+- **Aggregate Functions** - COUNT, SUM, AVG, MIN, MAX
+- **JOIN Support** - Two-table and multi-table JOINs
+- **GROUP BY/HAVING** - Full aggregation support
+- **ORDER BY/LIMIT** - Sorting and result limiting
 
-### Recently Added
+#### ✅ Driver Implementation
+- **database/sql Interface** - Full compliance
+- **Prepared Statements** - With parameter binding
+- **Transaction Support** - BEGIN/COMMIT/ROLLBACK
+- **Context Support** - Query cancellation
+- **Type Conversions** - Automatic Go type mapping
 
-- ✅ Context support for cancellation
-- ✅ Connection pooling implementation
-- ✅ Prepared statement caching
-- ✅ Comprehensive performance benchmarks
-- ✅ Concurrent access optimizations
+#### 🚧 In Progress
+- **Query Optimization** - Cost-based optimizer
+- **Advanced SQL** - UNION, subqueries, CTEs
+- **Performance** - Hash joins, parallel execution
 
-### TODO
-
-- ❌ ENUM type
-- ❌ DuckDB extensions support
-- ❌ Native Go implementation (replace purego)
-- ❌ SQL parser
-- ❌ Query optimizer
-- ❌ Storage engine
+#### ❌ Future Work
+- **Indexes** - B-tree and adaptive indexes
+- **Window Functions** - OVER clause support
+- **Extensions** - Plugin system compatibility
+- **Compression** - Native compression support
 
 ## Installation
 
@@ -106,57 +103,31 @@ func main() {
 }
 ```
 
-## Requirements
+## Pure-Go Implementation
 
-The driver requires the DuckDB shared library. You have several options:
+This is a **pure-Go implementation** that does not require any external DuckDB libraries or CGO. It includes:
 
-### Option 1: Using Nix (Recommended)
+- Native SQL parser and query engine
+- Columnar storage with vectorized execution
+- Full implementation of core SQL features
+- No C dependencies - compiles to a single static binary
 
-The project includes a Nix flake that automatically provides DuckDB:
-
-```bash
-# Enter development shell with DuckDB
-nix develop
-
-# Or use direnv
-direnv allow
-
-# Verify DuckDB is available
-./scripts/test-duckdb-availability.sh
-```
-
-### Option 2: System Installation
-
-Install DuckDB on your system:
-
-- **macOS**: `brew install duckdb`
-- **Ubuntu/Debian**: Download from [DuckDB releases](https://github.com/duckdb/duckdb/releases)
-- **Windows**: Download DLL from releases
-
-The driver looks for:
-
-- macOS: `libduckdb.dylib`
-- Linux: `libduckdb.so`
-- Windows: `duckdb.dll`
-
-### Option 3: Custom Location
-
-Set the `DUCKDB_LIB_DIR` environment variable:
-
-```bash
-export DUCKDB_LIB_DIR=/path/to/duckdb/lib
-go run your-app.go
-```
+For development comparison with the C++ DuckDB implementation, see the benchmarks directory.
 
 ## Architecture
 
-The driver is structured in layers:
+The pure-Go implementation is structured as:
 
-1. **Purego Wrapper** (`internal/purego/`) - Low-level FFI bindings to DuckDB C API
-1. **Driver Implementation** (`driver/`) - database/sql interface implementation
-1. **Public API** (`duckdb.go`) - User-facing package
+```
+driver/          - database/sql driver interface
+internal/
+  engine/        - SQL parser, planner, executor
+  storage/       - Columnar storage and vectors
+  types/         - Type system implementation
+benchmarks/      - Performance and compatibility tests
+```
 
-The long-term goal is to progressively replace the purego/C dependencies with native Go implementations.
+See [Development Guide](DEVELOPMENT_GUIDE.md) for detailed architecture documentation.
 
 ## Development
 
@@ -182,23 +153,18 @@ make run-adv
 
 ```bash
 # Test commands
-make test          # Run all tests
-make coverage      # Generate coverage report
-make bench         # Run benchmarks
-make integration-test  # Run integration tests
+go test ./...                    # Run all tests
+go test -cover ./...            # With coverage
+go test -race ./...             # Race detection
 
-# Development commands
-make lint          # Run linters
-make fmt           # Format code
-make build         # Build the module
+# Benchmark commands
+cd benchmarks
+go test -bench=. ./analytical/  # Run analytical benchmarks
+./run_analytical_summary.sh     # Generate benchmark report
 
-# Example commands
-make run-basic     # Run basic example
-make run-adv       # Run advanced example
-
-# Utility commands
-make check-duckdb  # Verify DuckDB is available
-make help          # Show all commands
+# Development
+go fmt ./...                    # Format code
+go vet ./...                    # Run static analysis
 ```
 
 ### Running Tests Manually
@@ -259,6 +225,24 @@ go test -bench=. -benchmem ./test/...
 
 GPL v3.0 - See LICENSE file for details.
 
+## Documentation
+
+- [Development Guide](DEVELOPMENT_GUIDE.md) - Architecture and development workflows
+- [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues and solutions
+- [Analytical Benchmark Status](benchmarks/ANALYTICAL_BENCHMARK_STATUS.md) - Current test results
+- [Architecture Designs](.) - Detailed design documents for each component
+
 ## Contributing
 
-This project is in early development. Contributions are welcome! Please see the architecture documents for implementation guidelines.
+Contributions are welcome! Please:
+
+1. Read the [Development Guide](DEVELOPMENT_GUIDE.md)
+2. Check existing issues and PRs
+3. Run tests and benchmarks before submitting
+4. Follow Go code style conventions
+
+Priority areas for contribution:
+- Query optimization (hash joins, cost-based optimizer)
+- SQL parser extensions (UNION, subqueries)
+- Performance improvements
+- Additional SQL functions

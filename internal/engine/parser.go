@@ -46,6 +46,10 @@ func ParseSQL(sql string) (Statement, error) {
 		return parseSelect(sql)
 	case strings.HasPrefix(upperSQL, "INSERT"):
 		return parseInsert(sql)
+	case strings.HasPrefix(upperSQL, "UPDATE"):
+		return parseUpdate(sql)
+	case strings.HasPrefix(upperSQL, "DELETE"):
+		return parseDelete(sql)
 	case strings.HasPrefix(upperSQL, "CREATE TABLE"):
 		return parseCreateTable(sql)
 	case strings.HasPrefix(upperSQL, "DROP TABLE"):
@@ -65,6 +69,7 @@ func ParseSQL(sql string) (Statement, error) {
 type SelectStatement struct {
 	Columns    []Expression
 	From       *TableRef
+	Joins      []JoinClause
 	Where      Expression
 	GroupBy    []Expression
 	Having     Expression
@@ -72,6 +77,23 @@ type SelectStatement struct {
 	Limit      *int64
 	Offset     *int64
 }
+
+// JoinClause represents a JOIN in a SELECT statement
+type JoinClause struct {
+	Type      JoinType
+	Table     *TableRef
+	Condition Expression
+}
+
+// JoinType represents the type of join
+type JoinType int
+
+const (
+	InnerJoin JoinType = iota
+	LeftJoin
+	RightJoin
+	FullJoin
+)
 
 func (s *SelectStatement) Type() StatementType { return StmtSelect }
 
@@ -83,6 +105,29 @@ type InsertStatement struct {
 }
 
 func (s *InsertStatement) Type() StatementType { return StmtInsert }
+
+// UpdateStatement represents an UPDATE statement
+type UpdateStatement struct {
+	Table   *TableRef
+	Sets    []SetClause
+	Where   Expression
+}
+
+func (s *UpdateStatement) Type() StatementType { return StmtUpdate }
+
+// SetClause represents a column = value assignment in UPDATE
+type SetClause struct {
+	Column string
+	Value  Expression
+}
+
+// DeleteStatement represents a DELETE statement
+type DeleteStatement struct {
+	Table *TableRef
+	Where Expression
+}
+
+func (s *DeleteStatement) Type() StatementType { return StmtDelete }
 
 // CreateTableStatement represents a CREATE TABLE statement
 type CreateTableStatement struct {
@@ -153,6 +198,15 @@ type ParameterExpr struct {
 
 func (e *ParameterExpr) ExprType() ExpressionType { return ExprParameter }
 
+// FunctionExpr represents a function call
+type FunctionExpr struct {
+	Name  string
+	Args  []Expression
+	Alias string // Column alias (e.g., "count" from "COUNT(*) as count")
+}
+
+func (e *FunctionExpr) ExprType() ExpressionType { return ExprFunction }
+
 // BinaryExpr represents a binary expression
 type BinaryExpr struct {
 	Left  Expression
@@ -178,6 +232,8 @@ const (
 	OpMinus
 	OpMult
 	OpDiv
+	OpLike
+	OpBetween
 )
 
 // TableRef represents a table reference
@@ -195,6 +251,10 @@ type OrderByExpr struct {
 
 // Simple parser implementations
 func parseSelect(sql string) (Statement, error) {
+	// Clean up SQL formatting (remove extra whitespace, newlines)
+	sql = strings.TrimSpace(sql)
+	sql = strings.Join(strings.Fields(sql), " ")
+	
 	// Very basic SELECT parsing
 	parts := strings.Fields(sql)
 	if len(parts) < 2 {
@@ -231,58 +291,31 @@ func parseSelect(sql string) (Statement, error) {
 		fromPart := sql[fromIdx+6:]   // Skip " FROM "
 		
 		// Parse columns
-		colParts := strings.Split(selectPart, ",")
-		var columns []Expression
-		for _, col := range colParts {
-			col = strings.TrimSpace(col)
-			if col == "*" {
-				columns = append(columns, &ColumnExpr{Column: "*"})
-			} else {
-				columns = append(columns, &ColumnExpr{Column: col})
-			}
+		columns, err := parseSelectColumns(selectPart)
+		if err != nil {
+			return nil, err
 		}
 		
-		// Parse FROM part for WHERE, LIMIT, etc.
-		var where Expression
-		var limit *int64
-		tableAndMore := strings.TrimSpace(fromPart)
-		tableName := tableAndMore
+		// Parse FROM clause (potentially with JOINs)
+		fromClause, joins, remainder, err := parseFromClause(fromPart)
+		if err != nil {
+			return nil, err
+		}
 		
-		// Check for WHERE clause
-		if whereIdx := strings.Index(strings.ToUpper(tableAndMore), " WHERE "); whereIdx != -1 {
-			tableName = strings.TrimSpace(tableAndMore[:whereIdx])
-			whereAndMore := strings.TrimSpace(tableAndMore[whereIdx+7:])
-			
-			// Extract WHERE condition
-			wherePart := whereAndMore
-			
-			// Check if there's a LIMIT after WHERE
-			if limitIdx := strings.Index(strings.ToUpper(whereAndMore), " LIMIT "); limitIdx != -1 {
-				wherePart = strings.TrimSpace(whereAndMore[:limitIdx])
-				limitPart := strings.TrimSpace(whereAndMore[limitIdx+7:])
-				
-				if limitVal, err := strconv.ParseInt(limitPart, 10, 64); err == nil {
-					limit = &limitVal
-				}
-			}
-			
-			// Parse WHERE expression
-			where = parseWhereExpression(wherePart)
-		} else if strings.Contains(strings.ToUpper(tableAndMore), " LIMIT ") {
-			// No WHERE, just LIMIT
-			limitIdx := strings.Index(strings.ToUpper(tableAndMore), " LIMIT ")
-			tableName = strings.TrimSpace(tableAndMore[:limitIdx])
-			limitPart := strings.TrimSpace(tableAndMore[limitIdx+7:])
-			
-			if limitVal, err := strconv.ParseInt(limitPart, 10, 64); err == nil {
-				limit = &limitVal
-			}
+		// Parse remainder for WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, etc.
+		where, groupBy, having, orderBy, limit, err := parseCompleteSelectRemainder(remainder)
+		if err != nil {
+			return nil, err
 		}
 		
 		return &SelectStatement{
 			Columns: columns,
-			From:    &TableRef{Table: tableName},
+			From:    fromClause,
+			Joins:   joins,
 			Where:   where,
+			GroupBy: groupBy,
+			Having:  having,
+			OrderBy: orderBy,
 			Limit:   limit,
 		}, nil
 	}
@@ -570,7 +603,58 @@ func parseColumnDefinitions(colDefs string) []ColumnDefinition {
 
 // parseWhereExpression parses a WHERE clause expression
 func parseWhereExpression(where string) Expression {
+	paramIdx := 1
+	return parseWhereExpressionWithParams(where, &paramIdx)
+}
+
+// parseWhereExpressionWithParams parses a WHERE clause expression with parameter tracking
+func parseWhereExpressionWithParams(where string, paramIndex *int) Expression {
 	where = strings.TrimSpace(where)
+	upperWhere := strings.ToUpper(where)
+	
+	// Check for BETWEEN
+	if strings.Contains(upperWhere, " BETWEEN ") {
+		betweenIdx := strings.Index(upperWhere, " BETWEEN ")
+		andIdx := strings.Index(upperWhere[betweenIdx:], " AND ")
+		if andIdx != -1 {
+			andIdx += betweenIdx
+			column := strings.TrimSpace(where[:betweenIdx])
+			lowerBound := strings.TrimSpace(where[betweenIdx+9:andIdx]) // Skip " BETWEEN "
+			upperBound := strings.TrimSpace(where[andIdx+5:]) // Skip " AND "
+			
+			// Create column >= lower AND column <= upper
+			lowerExpr := &BinaryExpr{
+				Left:  parseColumnExpression(column),
+				Op:    OpGe,
+				Right: parseValueExpressionWithParams(lowerBound, paramIndex),
+			}
+			
+			upperExpr := &BinaryExpr{
+				Left:  parseColumnExpression(column),
+				Op:    OpLe,
+				Right: parseValueExpressionWithParams(upperBound, paramIndex),
+			}
+			
+			return &BinaryExpr{
+				Left:  lowerExpr,
+				Op:    OpAnd,
+				Right: upperExpr,
+			}
+		}
+	}
+	
+	// Check for LIKE
+	if strings.Contains(upperWhere, " LIKE ") {
+		likeIdx := strings.Index(upperWhere, " LIKE ")
+		column := strings.TrimSpace(where[:likeIdx])
+		pattern := strings.TrimSpace(where[likeIdx+6:]) // Skip " LIKE "
+		
+		return &BinaryExpr{
+			Left:  parseColumnExpression(column),
+			Op:    OpLike,
+			Right: parseValueExpressionWithParams(pattern, paramIndex),
+		}
+	}
 	
 	// Simple comparison parsing (e.g., "column = value")
 	// Check for common operators
@@ -584,19 +668,23 @@ func parseWhereExpression(where string) Expression {
 			// Parse left side (column)
 			var leftExpr Expression
 			if isIdentifier(left) {
-				leftExpr = &ColumnExpr{Column: left}
+				leftExpr = parseColumnExpression(left)
 			} else {
 				// Try to parse as constant
 				if val, err := parseValue(left); err == nil {
 					leftExpr = &ConstantExpr{Value: val}
 				} else {
-					leftExpr = &ColumnExpr{Column: left}
+					leftExpr = parseColumnExpression(left)
 				}
 			}
 			
 			// Parse right side (value)
 			var rightExpr Expression
-			if val, err := parseValue(right); err == nil {
+			if right == "?" {
+				// Parameter
+				rightExpr = &ParameterExpr{Index: *paramIndex}
+				*paramIndex++
+			} else if val, err := parseValue(right); err == nil {
 				rightExpr = &ConstantExpr{Value: val}
 			} else {
 				rightExpr = &ColumnExpr{Column: right}
@@ -629,6 +717,37 @@ func parseWhereExpression(where string) Expression {
 	
 	// If no operator found, return nil
 	return nil
+}
+
+// parseValueExpression parses a value expression (constant, parameter, or column)
+func parseValueExpression(s string) Expression {
+	paramIdx := 1
+	return parseValueExpressionWithParams(s, &paramIdx)
+}
+
+// parseValueExpressionWithParams parses a value expression with parameter tracking
+func parseValueExpressionWithParams(s string, paramIndex *int) Expression {
+	s = strings.TrimSpace(s)
+	
+	// Check for parameter
+	if s == "?" {
+		expr := &ParameterExpr{Index: *paramIndex}
+		*paramIndex++
+		return expr
+	}
+	
+	// Check for string literal
+	if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") {
+		return &ConstantExpr{Value: s[1 : len(s)-1]}
+	}
+	
+	// Try to parse as number
+	if num, err := parseNumber(s); err == nil {
+		return &ConstantExpr{Value: num}
+	}
+	
+	// Otherwise, treat as column reference
+	return &ColumnExpr{Column: s}
 }
 
 // parseValue attempts to parse a string as a value (number or string)
@@ -700,4 +819,851 @@ func parseDropTable(sql string) (Statement, error) {
 	}
 	
 	return nil, fmt.Errorf("invalid DROP TABLE statement")
+}
+
+// parseUpdate parses an UPDATE statement
+func parseUpdate(sql string) (Statement, error) {
+	// Very basic UPDATE table SET col = val WHERE condition parsing
+	
+	// Remove UPDATE keyword
+	sql = sql[6:] // len("UPDATE")
+	sql = strings.TrimSpace(sql)
+	
+	// Global parameter counter
+	paramIndex := 1
+	
+	// Find SET keyword
+	setIdx := strings.Index(strings.ToUpper(sql), " SET ")
+	if setIdx == -1 {
+		return nil, fmt.Errorf("UPDATE missing SET clause")
+	}
+	
+	// Extract table name
+	tableName := strings.TrimSpace(sql[:setIdx])
+	sql = sql[setIdx+5:] // Skip " SET "
+	
+	// Find WHERE clause (optional)
+	whereIdx := strings.Index(strings.ToUpper(sql), " WHERE ")
+	setPart := sql
+	var wherePart string
+	
+	if whereIdx != -1 {
+		setPart = strings.TrimSpace(sql[:whereIdx])
+		wherePart = strings.TrimSpace(sql[whereIdx+7:]) // Skip " WHERE "
+	}
+	
+	// Parse SET clauses (very basic for now)
+	sets := []SetClause{}
+	setPairs := strings.Split(setPart, ",")
+	
+	for _, pair := range setPairs {
+		pair = strings.TrimSpace(pair)
+		eqIdx := strings.Index(pair, "=")
+		if eqIdx == -1 {
+			return nil, fmt.Errorf("invalid SET clause: %s", pair)
+		}
+		
+		column := strings.TrimSpace(pair[:eqIdx])
+		valuePart := strings.TrimSpace(pair[eqIdx+1:])
+		
+		// Parse value expression
+		var valueExpr Expression
+		if valuePart == "?" {
+			// Parameter
+			valueExpr = &ParameterExpr{Index: paramIndex}
+			paramIndex++
+		} else if strings.HasPrefix(valuePart, "'") && strings.HasSuffix(valuePart, "'") {
+			// String literal
+			valueExpr = &ConstantExpr{Value: valuePart[1:len(valuePart)-1]}
+		} else if strings.Contains(valuePart, "*") || strings.Contains(valuePart, "+") || strings.Contains(valuePart, "-") {
+			// Expression (very basic handling)
+			valueExpr = parseMathExpression(valuePart)
+		} else if num, err := parseNumber(valuePart); err == nil {
+			// Number
+			valueExpr = &ConstantExpr{Value: num}
+		} else {
+			// Treat as column reference or string
+			valueExpr = &ConstantExpr{Value: valuePart}
+		}
+		
+		sets = append(sets, SetClause{
+			Column: column,
+			Value:  valueExpr,
+		})
+	}
+	
+	// Parse WHERE clause
+	var whereExpr Expression
+	if wherePart != "" {
+		whereExpr = parseWhereExpressionWithParams(wherePart, &paramIndex)
+	}
+	
+	return &UpdateStatement{
+		Table: &TableRef{Table: tableName},
+		Sets:  sets,
+		Where: whereExpr,
+	}, nil
+}
+
+// parseDelete parses a DELETE statement
+func parseDelete(sql string) (Statement, error) {
+	// Very basic DELETE FROM table WHERE condition parsing
+	upperSQL := strings.ToUpper(sql)
+	
+	// Remove DELETE keyword
+	if strings.HasPrefix(upperSQL, "DELETE FROM ") {
+		sql = sql[12:] // len("DELETE FROM ")
+	} else if strings.HasPrefix(upperSQL, "DELETE ") {
+		sql = sql[7:] // len("DELETE ")
+		// Check for FROM
+		if strings.HasPrefix(strings.ToUpper(sql), "FROM ") {
+			sql = sql[5:] // len("FROM ")
+		}
+	} else {
+		return nil, fmt.Errorf("invalid DELETE statement")
+	}
+	
+	sql = strings.TrimSpace(sql)
+	
+	// Find WHERE clause (optional but usually present)
+	whereIdx := strings.Index(strings.ToUpper(sql), " WHERE ")
+	tableName := sql
+	var wherePart string
+	
+	if whereIdx != -1 {
+		tableName = strings.TrimSpace(sql[:whereIdx])
+		wherePart = strings.TrimSpace(sql[whereIdx+7:]) // Skip " WHERE "
+	}
+	
+	// Parse WHERE clause
+	var whereExpr Expression
+	if wherePart != "" {
+		whereExpr = parseWhereExpression(wherePart)
+	}
+	
+	return &DeleteStatement{
+		Table: &TableRef{Table: tableName},
+		Where: whereExpr,
+	}, nil
+}
+
+// parseMathExpression parses simple math expressions like "value * 1.1"
+func parseMathExpression(expr string) Expression {
+	// Very basic math expression parsing
+	// For now, just return as a constant expression
+	// In a real implementation, this would parse into a proper expression tree
+	
+	// Handle simple cases like "value * 1.1"
+	if strings.Contains(expr, "*") {
+		parts := strings.Split(expr, "*")
+		if len(parts) == 2 {
+			left := strings.TrimSpace(parts[0])
+			right := strings.TrimSpace(parts[1])
+			
+			var leftExpr, rightExpr Expression
+			
+			// Parse left side
+			if num, err := parseNumber(left); err == nil {
+				leftExpr = &ConstantExpr{Value: num}
+			} else {
+				leftExpr = &ColumnExpr{Column: left}
+			}
+			
+			// Parse right side
+			if num, err := parseNumber(right); err == nil {
+				rightExpr = &ConstantExpr{Value: num}
+			} else {
+				rightExpr = &ColumnExpr{Column: right}
+			}
+			
+			return &BinaryExpr{
+				Left:  leftExpr,
+				Op:    OpMult,
+				Right: rightExpr,
+			}
+		}
+	}
+	
+	// For other cases, just return as column reference
+	return &ColumnExpr{Column: expr}
+}
+
+// parseFunctionExpression parses a function call like COUNT(*) or SUM(column)
+func parseFunctionExpression(funcCall string) Expression {
+	funcCall = strings.TrimSpace(funcCall)
+	
+	// Find the opening parenthesis
+	parenIdx := strings.Index(funcCall, "(")
+	if parenIdx == -1 {
+		return nil
+	}
+	
+	// Extract function name and arguments
+	funcName := strings.TrimSpace(funcCall[:parenIdx])
+	argsStr := strings.TrimSpace(funcCall[parenIdx+1:])
+	
+	// Remove closing parenthesis
+	if !strings.HasSuffix(argsStr, ")") {
+		return nil
+	}
+	argsStr = argsStr[:len(argsStr)-1]
+	
+	// Parse arguments
+	var args []Expression
+	if argsStr != "" {
+		if argsStr == "*" {
+			// Special case for COUNT(*)
+			args = []Expression{&ColumnExpr{Column: "*"}}
+		} else {
+			// Parse comma-separated arguments
+			argParts := strings.Split(argsStr, ",")
+			for _, arg := range argParts {
+				arg = strings.TrimSpace(arg)
+				if arg == "*" {
+					args = append(args, &ColumnExpr{Column: "*"})
+				} else {
+					// Try to parse as constant or column
+					if val, err := parseValue(arg); err == nil {
+						args = append(args, &ConstantExpr{Value: val})
+					} else {
+						args = append(args, parseColumnExpression(arg))
+					}
+				}
+			}
+		}
+	}
+	
+	return &FunctionExpr{
+		Name: strings.ToUpper(funcName),
+		Args: args,
+	}
+}
+
+// parseSelectColumns parses the column list in a SELECT statement
+func parseSelectColumns(selectPart string) ([]Expression, error) {
+	colParts := strings.Split(selectPart, ",")
+	var columns []Expression
+	
+	for _, col := range colParts {
+		col = strings.TrimSpace(col)
+		if col == "*" {
+			columns = append(columns, &ColumnExpr{Column: "*"})
+		} else {
+			// Check for alias (e.g., "COUNT(*) as count" or "amount AS total")
+			var expr Expression
+			
+			// Split on "AS" or "as" (case insensitive)
+			upperCol := strings.ToUpper(col)
+			asIdx := strings.Index(upperCol, " AS ")
+			if asIdx != -1 {
+				exprPart := strings.TrimSpace(col[:asIdx])
+				alias := strings.TrimSpace(col[asIdx+4:]) // Skip " AS "
+				
+				// Parse the expression part
+				if strings.Contains(exprPart, "(") && strings.Contains(exprPart, ")") {
+					expr = parseFunctionExpression(exprPart)
+					if expr == nil {
+						expr = parseColumnExpression(exprPart)
+					} else {
+						// Set the alias for function expressions
+						if funcExpr, ok := expr.(*FunctionExpr); ok {
+							funcExpr.Alias = alias
+						}
+					}
+				} else {
+					expr = parseColumnExpression(exprPart)
+				}
+			} else {
+				// No alias, parse the entire column
+				if strings.Contains(col, "(") && strings.Contains(col, ")") {
+					expr = parseFunctionExpression(col)
+					if expr == nil {
+						expr = parseColumnExpression(col)
+					}
+				} else {
+					expr = parseColumnExpression(col)
+				}
+			}
+			
+			// For now, ignore the alias and just use the expression
+			// In a full implementation, we'd store the alias information
+			columns = append(columns, expr)
+		}
+	}
+	
+	return columns, nil
+}
+
+// parseColumnExpression parses a column expression (potentially qualified with table alias)
+func parseColumnExpression(col string) Expression {
+	col = strings.TrimSpace(col)
+	
+	// Check for table.column syntax
+	if strings.Contains(col, ".") {
+		parts := strings.Split(col, ".")
+		if len(parts) == 2 {
+			return &ColumnExpr{
+				Table:  strings.TrimSpace(parts[0]),
+				Column: strings.TrimSpace(parts[1]),
+			}
+		}
+	}
+	
+	return &ColumnExpr{Column: col}
+}
+
+// parseFromClause parses FROM table [alias] [JOIN ...] and returns the table, joins, and remainder
+func parseFromClause(fromPart string) (*TableRef, []JoinClause, string, error) {
+	fromPart = strings.TrimSpace(fromPart)
+	
+	// For now, implement simple parsing - just handle basic table with optional alias
+	// Complex JOIN parsing would be more sophisticated
+	
+	// Find the first JOIN keyword (if any)
+	upperFrom := strings.ToUpper(fromPart)
+	joinIdx := -1
+	joinKeywords := []string{" JOIN ", " INNER JOIN ", " LEFT JOIN ", " RIGHT JOIN "}
+	
+	for _, keyword := range joinKeywords {
+		if idx := strings.Index(upperFrom, keyword); idx != -1 {
+			if joinIdx == -1 || idx < joinIdx {
+				joinIdx = idx
+			}
+		}
+	}
+	
+	var mainTable *TableRef
+	var joins []JoinClause
+	var remainder string
+	
+	if joinIdx == -1 {
+		// No JOINs, parse simple FROM table [alias] WHERE/LIMIT...
+		parts := strings.Fields(fromPart)
+		if len(parts) == 0 {
+			return nil, nil, "", fmt.Errorf("empty FROM clause")
+		}
+		
+		tableName := parts[0]
+		alias := ""
+		nextIdx := 1
+		
+		// Check if next part is an alias (not a keyword)
+		if len(parts) > 1 {
+			next := strings.ToUpper(parts[1])
+			if next != "WHERE" && next != "JOIN" && next != "INNER" && next != "LEFT" && next != "RIGHT" && next != "ORDER" && next != "GROUP" && next != "LIMIT" {
+				alias = parts[1]
+				nextIdx = 2
+			}
+		}
+		
+		mainTable = &TableRef{Table: tableName, Alias: alias}
+		
+		// Everything else is remainder
+		if nextIdx < len(parts) {
+			remainder = strings.Join(parts[nextIdx:], " ")
+		}
+	} else {
+		// Has JOINs - parse complex FROM clause with JOINs
+		tablePart := fromPart[:joinIdx]
+		joinPart := fromPart[joinIdx:]
+		
+		// Parse main table with optional alias
+		parts := strings.Fields(tablePart)
+		if len(parts) == 0 {
+			return nil, nil, "", fmt.Errorf("empty FROM clause")
+		}
+		
+		tableName := parts[0]
+		alias := ""
+		
+		// Check if next part is an alias (not a keyword)
+		if len(parts) > 1 {
+			next := strings.ToUpper(parts[1])
+			if next != "WHERE" && next != "JOIN" && next != "INNER" && next != "LEFT" && next != "RIGHT" && next != "ORDER" && next != "GROUP" && next != "LIMIT" {
+				alias = parts[1]
+			}
+		}
+		
+		mainTable = &TableRef{Table: tableName, Alias: alias}
+		
+		// Parse JOINs
+		var err error
+		joins, remainder, err = parseJoins(joinPart)
+		if err != nil {
+			return nil, nil, "", err
+		}
+	}
+	
+	return mainTable, joins, remainder, nil
+}
+
+// parseSelectRemainder parses WHERE, GROUP BY, ORDER BY, LIMIT etc. from the remainder of a SELECT
+func parseSelectRemainder(remainder string) (Expression, *int64, error) {
+	remainder = strings.TrimSpace(remainder)
+	if remainder == "" {
+		return nil, nil, nil
+	}
+	
+	var where Expression
+	var limit *int64
+	
+	// Check for WHERE clause
+	if strings.HasPrefix(strings.ToUpper(remainder), "WHERE ") {
+		wherePart := remainder[6:] // Skip "WHERE "
+		
+		// Check if there's a LIMIT after WHERE
+		if limitIdx := strings.Index(strings.ToUpper(wherePart), " LIMIT "); limitIdx != -1 {
+			whereCondition := strings.TrimSpace(wherePart[:limitIdx])
+			limitPart := strings.TrimSpace(wherePart[limitIdx+7:])
+			
+			if limitVal, err := strconv.ParseInt(limitPart, 10, 64); err == nil {
+				limit = &limitVal
+			}
+			
+			where = parseWhereExpression(whereCondition)
+		} else {
+			where = parseWhereExpression(wherePart)
+		}
+	} else if strings.HasPrefix(strings.ToUpper(remainder), "LIMIT ") {
+		// No WHERE, just LIMIT
+		limitPart := strings.TrimSpace(remainder[6:])
+		if limitVal, err := strconv.ParseInt(limitPart, 10, 64); err == nil {
+			limit = &limitVal
+		}
+	}
+	
+	return where, limit, nil
+}
+
+// parseCompleteSelectRemainder parses WHERE, GROUP BY, HAVING, ORDER BY, LIMIT etc. from the remainder of a SELECT
+func parseCompleteSelectRemainder(remainder string) (Expression, []Expression, Expression, []OrderByExpr, *int64, error) {
+	remainder = strings.TrimSpace(remainder)
+	if remainder == "" {
+		return nil, nil, nil, nil, nil, nil
+	}
+	
+	var where Expression
+	var groupBy []Expression
+	var having Expression
+	var orderBy []OrderByExpr
+	var limit *int64
+	
+	// Parse each clause in order
+	parts := strings.Fields(remainder)
+	if len(parts) == 0 {
+		return nil, nil, nil, nil, nil, nil
+	}
+	
+	i := 0
+	for i < len(parts) {
+		upperPart := strings.ToUpper(parts[i])
+		
+		switch upperPart {
+		case "WHERE":
+			// Find the end of the WHERE clause
+			whereStart := i + 1
+			whereEnd := findNextClauseStart(parts, whereStart, []string{"GROUP", "HAVING", "ORDER", "LIMIT"})
+			if whereEnd == -1 {
+				whereEnd = len(parts)
+			}
+			
+			if whereStart < len(parts) {
+				whereStr := strings.Join(parts[whereStart:whereEnd], " ")
+				where = parseWhereExpression(whereStr)
+			}
+			i = whereEnd
+			
+		case "GROUP":
+			// Expect "GROUP BY"
+			if i+1 < len(parts) && strings.ToUpper(parts[i+1]) == "BY" {
+				groupByStart := i + 2
+				groupByEnd := findNextClauseStart(parts, groupByStart, []string{"HAVING", "ORDER", "LIMIT"})
+				if groupByEnd == -1 {
+					groupByEnd = len(parts)
+				}
+				
+				if groupByStart < len(parts) {
+					groupByStr := strings.Join(parts[groupByStart:groupByEnd], " ")
+					groupBy = parseGroupByColumns(groupByStr)
+				}
+				i = groupByEnd
+			} else {
+				i++
+			}
+			
+		case "HAVING":
+			// Parse HAVING clause
+			havingStart := i + 1
+			havingEnd := findNextClauseStart(parts, havingStart, []string{"ORDER", "LIMIT"})
+			if havingEnd == -1 {
+				havingEnd = len(parts)
+			}
+			
+			if havingStart < len(parts) {
+				havingStr := strings.Join(parts[havingStart:havingEnd], " ")
+				having = parseHavingExpression(havingStr)
+			}
+			i = havingEnd
+			
+		case "ORDER":
+			// Expect "ORDER BY"
+			if i+1 < len(parts) && strings.ToUpper(parts[i+1]) == "BY" {
+				orderByStart := i + 2
+				orderByEnd := findNextClauseStart(parts, orderByStart, []string{"LIMIT"})
+				if orderByEnd == -1 {
+					orderByEnd = len(parts)
+				}
+				
+				if orderByStart < len(parts) {
+					orderByStr := strings.Join(parts[orderByStart:orderByEnd], " ")
+					orderBy = parseOrderByColumns(orderByStr)
+				}
+				i = orderByEnd
+			} else {
+				i++
+			}
+			
+		case "LIMIT":
+			// Parse LIMIT value
+			if i+1 < len(parts) {
+				if limitVal, err := strconv.ParseInt(parts[i+1], 10, 64); err == nil {
+					limit = &limitVal
+				}
+				i += 2
+			} else {
+				i++
+			}
+			
+		default:
+			i++
+		}
+	}
+	
+	return where, groupBy, having, orderBy, limit, nil
+}
+
+// findNextClauseStart finds the next SQL clause keyword
+func findNextClauseStart(parts []string, start int, clauses []string) int {
+	for i := start; i < len(parts); i++ {
+		upperPart := strings.ToUpper(parts[i])
+		for _, clause := range clauses {
+			if upperPart == clause {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// parseGroupByColumns parses GROUP BY column list
+func parseGroupByColumns(groupByStr string) []Expression {
+	var groupBy []Expression
+	
+	// Split by comma and parse each column
+	colParts := strings.Split(groupByStr, ",")
+	for _, col := range colParts {
+		col = strings.TrimSpace(col)
+		if col != "" {
+			groupBy = append(groupBy, parseColumnExpression(col))
+		}
+	}
+	
+	return groupBy
+}
+
+// parseOrderByColumns parses ORDER BY column list
+func parseOrderByColumns(orderByStr string) []OrderByExpr {
+	var orderBy []OrderByExpr
+	
+	// Split by comma and parse each column
+	colParts := strings.Split(orderByStr, ",")
+	for _, col := range colParts {
+		col = strings.TrimSpace(col)
+		if col != "" {
+			// Check for DESC
+			desc := false
+			if strings.HasSuffix(strings.ToUpper(col), " DESC") {
+				desc = true
+				col = strings.TrimSpace(col[:len(col)-5])
+			} else if strings.HasSuffix(strings.ToUpper(col), " ASC") {
+				col = strings.TrimSpace(col[:len(col)-4])
+			}
+			
+			orderBy = append(orderBy, OrderByExpr{
+				Expr: parseColumnExpression(col),
+				Desc: desc,
+			})
+		}
+	}
+	
+	return orderBy
+}
+
+// parseJoins parses JOIN clauses and returns joins and remainder
+func parseJoins(joinPart string) ([]JoinClause, string, error) {
+	joinPart = strings.TrimSpace(joinPart)
+	var joins []JoinClause
+	remainder := ""
+	
+	// Process JOIN clauses one by one
+	for len(joinPart) > 0 {
+		// Find the JOIN type
+		upperJoinPart := strings.ToUpper(joinPart)
+		
+		var joinType JoinType
+		var keywordLen int
+		
+		if strings.HasPrefix(upperJoinPart, "INNER JOIN ") {
+			joinType = InnerJoin
+			keywordLen = 11
+		} else if strings.HasPrefix(upperJoinPart, "LEFT JOIN ") {
+			joinType = LeftJoin
+			keywordLen = 10
+		} else if strings.HasPrefix(upperJoinPart, "RIGHT JOIN ") {
+			joinType = RightJoin
+			keywordLen = 11
+		} else if strings.HasPrefix(upperJoinPart, "JOIN ") {
+			joinType = InnerJoin
+			keywordLen = 5
+		} else {
+			// Not a JOIN, this is the remainder
+			remainder = joinPart
+			break
+		}
+		
+		// Skip the JOIN keyword
+		afterJoin := strings.TrimSpace(joinPart[keywordLen:])
+		
+		// Find the ON keyword
+		onIdx := strings.Index(strings.ToUpper(afterJoin), " ON ")
+		if onIdx == -1 {
+			return nil, "", fmt.Errorf("JOIN missing ON clause")
+		}
+		
+		// Parse table name and alias
+		tablePart := strings.TrimSpace(afterJoin[:onIdx])
+		parts := strings.Fields(tablePart)
+		if len(parts) == 0 {
+			return nil, "", fmt.Errorf("empty table name in JOIN")
+		}
+		
+		tableName := parts[0]
+		alias := ""
+		if len(parts) > 1 {
+			alias = parts[1]
+		}
+		
+		table := &TableRef{Table: tableName, Alias: alias}
+		
+		// Parse ON condition
+		afterOn := strings.TrimSpace(afterJoin[onIdx+4:]) // Skip " ON "
+		
+		// Find the end of the ON condition - look for next JOIN or clause keywords
+		conditionEnd := len(afterOn)
+		nextJoinIdx := findNextJoin(afterOn)
+		nextClauseIdx := findNextClause(afterOn)
+		
+		if nextJoinIdx != -1 && (nextClauseIdx == -1 || nextJoinIdx < nextClauseIdx) {
+			conditionEnd = nextJoinIdx
+		} else if nextClauseIdx != -1 {
+			conditionEnd = nextClauseIdx
+		}
+		
+		conditionPart := strings.TrimSpace(afterOn[:conditionEnd])
+		condition := parseJoinCondition(conditionPart)
+		
+		// Create JOIN clause
+		joins = append(joins, JoinClause{
+			Type:      joinType,
+			Table:     table,
+			Condition: condition,
+		})
+		
+		// Continue with the rest
+		if conditionEnd < len(afterOn) {
+			joinPart = strings.TrimSpace(afterOn[conditionEnd:])
+		} else {
+			joinPart = ""
+		}
+	}
+	
+	return joins, remainder, nil
+}
+
+// findNextJoin finds the index of the next JOIN keyword
+func findNextJoin(s string) int {
+	upper := strings.ToUpper(s)
+	joinKeywords := []string{" INNER JOIN ", " LEFT JOIN ", " RIGHT JOIN ", " JOIN "}
+	
+	minIdx := -1
+	for _, keyword := range joinKeywords {
+		idx := strings.Index(upper, keyword)
+		if idx != -1 && (minIdx == -1 || idx < minIdx) {
+			minIdx = idx
+		}
+	}
+	
+	return minIdx
+}
+
+// findNextClause finds the index of the next SQL clause keyword
+func findNextClause(s string) int {
+	upper := strings.ToUpper(s)
+	clauses := []string{" WHERE ", " GROUP ", " ORDER ", " HAVING ", " LIMIT "}
+	
+	minIdx := -1
+	for _, clause := range clauses {
+		idx := strings.Index(upper, clause)
+		if idx != -1 && (minIdx == -1 || idx < minIdx) {
+			minIdx = idx
+		}
+	}
+	
+	return minIdx
+}
+
+// parseJoinCondition parses a JOIN ON condition
+func parseJoinCondition(condition string) Expression {
+	// For now, parse simple equality conditions like "o.customer_id = c.id"
+	// In a full implementation, this would be more sophisticated
+	
+	// Look for equality operator
+	eqIdx := strings.Index(condition, "=")
+	if eqIdx == -1 {
+		// Fallback: return a simple column expression
+		return &ColumnExpr{Column: condition}
+	}
+	
+	left := strings.TrimSpace(condition[:eqIdx])
+	right := strings.TrimSpace(condition[eqIdx+1:])
+	
+	// Parse left and right sides as column expressions
+	leftExpr := parseJoinColumn(left)
+	rightExpr := parseJoinColumn(right)
+	
+	return &BinaryExpr{
+		Left:  leftExpr,
+		Op:    OpEq,
+		Right: rightExpr,
+	}
+}
+
+// parseJoinColumn parses a column reference in a JOIN condition
+func parseJoinColumn(col string) Expression {
+	col = strings.TrimSpace(col)
+	
+	// Check for table.column syntax
+	if strings.Contains(col, ".") {
+		parts := strings.Split(col, ".")
+		if len(parts) == 2 {
+			return &ColumnExpr{
+				Table:  strings.TrimSpace(parts[0]),
+				Column: strings.TrimSpace(parts[1]),
+			}
+		}
+	}
+	
+	return &ColumnExpr{Column: col}
+}
+
+// parseHavingExpression parses a HAVING clause expression 
+// HAVING expressions can reference aggregate functions and GROUP BY columns
+func parseHavingExpression(having string) Expression {
+	// For now, parse it the same as WHERE expressions
+	// In a full implementation, we'd handle aggregate function references differently
+	return parseComplexExpression(having)
+}
+
+// parseComplexExpression parses complex expressions with AND/OR operators
+func parseComplexExpression(expr string) Expression {
+	expr = strings.TrimSpace(expr)
+	upperExpr := strings.ToUpper(expr)
+	
+	// Handle AND expressions first (higher precedence)
+	if andIdx := strings.Index(upperExpr, " AND "); andIdx != -1 {
+		left := strings.TrimSpace(expr[:andIdx])
+		right := strings.TrimSpace(expr[andIdx+5:]) // Skip " AND "
+		
+		return &BinaryExpr{
+			Left:  parseSimpleExpression(left),
+			Op:    OpAnd,
+			Right: parseComplexExpression(right),
+		}
+	}
+	
+	// Handle OR expressions (lower precedence)
+	if orIdx := strings.Index(upperExpr, " OR "); orIdx != -1 {
+		left := strings.TrimSpace(expr[:orIdx])
+		right := strings.TrimSpace(expr[orIdx+4:]) // Skip " OR "
+		
+		return &BinaryExpr{
+			Left:  parseSimpleExpression(left),
+			Op:    OpOr,
+			Right: parseComplexExpression(right),
+		}
+	}
+	
+	// No AND/OR, parse as simple expression
+	return parseSimpleExpression(expr)
+}
+
+// parseSimpleExpression parses a simple comparison expression
+func parseSimpleExpression(expr string) Expression {
+	expr = strings.TrimSpace(expr)
+	
+	// Check for aggregate functions like COUNT(*) or SUM(amount)
+	if strings.Contains(expr, "(") && strings.Contains(expr, ")") {
+		// Find comparison operator after the function
+		operators := []string{">=", "<=", "!=", "<>", "=", ">", "<"}
+		
+		for _, op := range operators {
+			if idx := strings.Index(expr, op); idx != -1 {
+				left := strings.TrimSpace(expr[:idx])
+				right := strings.TrimSpace(expr[idx+len(op):])
+				
+				// Parse left side as function expression
+				var leftExpr Expression
+				if funcExpr := parseFunctionExpression(left); funcExpr != nil {
+					leftExpr = funcExpr
+				} else {
+					leftExpr = parseColumnExpression(left)
+				}
+				
+				// Parse right side as value
+				var rightExpr Expression
+				if val, err := parseValue(right); err == nil {
+					rightExpr = &ConstantExpr{Value: val}
+				} else {
+					rightExpr = parseColumnExpression(right)
+				}
+				
+				// Map operator to BinaryOp
+				var binOp BinaryOp
+				switch op {
+				case "=":
+					binOp = OpEq
+				case "!=", "<>":
+					binOp = OpNe
+				case "<":
+					binOp = OpLt
+				case "<=":
+					binOp = OpLe
+				case ">":
+					binOp = OpGt
+				case ">=":
+					binOp = OpGe
+				}
+				
+				return &BinaryExpr{
+					Left:  leftExpr,
+					Op:    binOp,
+					Right: rightExpr,
+				}
+			}
+		}
+	}
+	
+	// Fallback to regular WHERE expression parsing
+	paramIdx := 1
+	return parseWhereExpressionWithParams(expr, &paramIdx)
 }

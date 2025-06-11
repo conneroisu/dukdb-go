@@ -189,11 +189,12 @@ func (c *Connection) Close() error {
 
 // QueryResult represents the result of a query
 type QueryResult struct {
-	chunks  []*storage.DataChunk
-	current int
-	columns []Column
-	closed  bool
-	mu      sync.Mutex
+	chunks       []*storage.DataChunk
+	current      int
+	columns      []Column
+	closed       bool
+	mu           sync.Mutex
+	rowsAffected int64 // For UPDATE/DELETE operations
 }
 
 // Column represents column metadata
@@ -243,6 +244,14 @@ func (qr *QueryResult) Close() error {
 	qr.closed = true
 	qr.chunks = nil
 	return nil
+}
+
+// GetRowsAffected returns the number of rows affected by UPDATE/DELETE
+func (qr *QueryResult) GetRowsAffected() int64 {
+	qr.mu.Lock()
+	defer qr.mu.Unlock()
+	
+	return qr.rowsAffected
 }
 
 // PreparedStatement represents a prepared SQL statement
@@ -327,12 +336,74 @@ func (ps *PreparedStatement) bindParameters(stmt Statement) Statement {
 		}
 		
 	case *SelectStatement:
-		// TODO: Handle SELECT with WHERE parameters
-		return s
+		// Create a copy with bound WHERE clause and JOINs
+		return &SelectStatement{
+			From:       s.From,
+			Joins:      s.Joins,  // Include JOINs in the copy!
+			Columns:    s.Columns,
+			Where:      ps.bindExpression(s.Where),
+			GroupBy:    s.GroupBy,
+			Having:     ps.bindExpression(s.Having),
+			OrderBy:    s.OrderBy,
+			Limit:      s.Limit,
+			Offset:     s.Offset,
+		}
+		
+	case *UpdateStatement:
+		// Create a copy with bound values
+		newSets := make([]SetClause, len(s.Sets))
+		for i, set := range s.Sets {
+			newSets[i] = SetClause{
+				Column: set.Column,
+				Value:  ps.bindExpression(set.Value),
+			}
+		}
+		
+		return &UpdateStatement{
+			Table: s.Table,
+			Sets:  newSets,
+			Where: ps.bindExpression(s.Where),
+		}
+		
+	case *DeleteStatement:
+		// Create a copy with bound WHERE clause
+		return &DeleteStatement{
+			Table: s.Table,
+			Where: ps.bindExpression(s.Where),
+		}
 		
 	default:
 		// For other statement types, return as-is for now
 		return stmt
+	}
+}
+
+// bindExpression recursively binds parameters in an expression
+func (ps *PreparedStatement) bindExpression(expr Expression) Expression {
+	if expr == nil {
+		return nil
+	}
+	
+	switch e := expr.(type) {
+	case *ParameterExpr:
+		// Replace parameter with actual value
+		if val, exists := ps.params[e.Index]; exists {
+			return &ConstantExpr{Value: val}
+		}
+		// Parameter not bound - use NULL
+		return &ConstantExpr{Value: nil}
+		
+	case *BinaryExpr:
+		// Recursively bind left and right expressions
+		return &BinaryExpr{
+			Left:  ps.bindExpression(e.Left),
+			Op:    e.Op,
+			Right: ps.bindExpression(e.Right),
+		}
+		
+	default:
+		// Other expression types don't contain parameters
+		return expr
 	}
 }
 

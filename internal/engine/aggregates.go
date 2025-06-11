@@ -27,9 +27,10 @@ type AggregateState interface {
 
 // AggregateOperator performs aggregation operations
 type AggregateOperator struct {
-	groupBy    []Expression
-	aggregates []AggregateExpr
-	schema     []storage.LogicalType
+	groupBy     []Expression
+	aggregates  []AggregateExpr
+	schema      []storage.LogicalType
+	columnNames []string // Column names for context
 }
 
 // AggregateExpr represents an aggregate expression
@@ -41,6 +42,11 @@ type AggregateExpr struct {
 
 // NewAggregateOperator creates a new aggregate operator
 func NewAggregateOperator(groupBy []Expression, aggregates []AggregateExpr, inputSchema []storage.LogicalType) *AggregateOperator {
+	return NewAggregateOperatorWithContext(groupBy, aggregates, inputSchema, nil)
+}
+
+// NewAggregateOperatorWithContext creates a new aggregate operator with column names
+func NewAggregateOperatorWithContext(groupBy []Expression, aggregates []AggregateExpr, inputSchema []storage.LogicalType, columnNames []string) *AggregateOperator {
 	// Build output schema
 	schema := make([]storage.LogicalType, 0, len(groupBy)+len(aggregates))
 	
@@ -55,9 +61,10 @@ func NewAggregateOperator(groupBy []Expression, aggregates []AggregateExpr, inpu
 	}
 	
 	return &AggregateOperator{
-		groupBy:    groupBy,
-		aggregates: aggregates,
-		schema:     schema,
+		groupBy:     groupBy,
+		aggregates:  aggregates,
+		schema:      schema,
+		columnNames: columnNames,
 	}
 }
 
@@ -80,15 +87,37 @@ func (a *AggregateOperator) executeSimpleAggregate(ctx context.Context, input *s
 	// Update aggregates for all rows
 	for row := 0; row < input.Size(); row++ {
 		for i, agg := range a.aggregates {
-			val, err := evaluateExpression(agg.Input, input, row)
-			if err != nil {
-				return nil, err
-			}
-			
-			// Skip NULL values for most aggregates
-			if val != nil {
-				if err := agg.Function.Update(states[i], val); err != nil {
+			// Special handling for COUNT(*) - don't evaluate the * expression
+			if isCountStar(agg) {
+				// For COUNT(*), always pass 1 (any non-null value)
+				if err := agg.Function.Update(states[i], 1); err != nil {
 					return nil, err
+				}
+			} else {
+				// Create evaluation context if we have column names
+				var evalCtx *EvaluationContext
+				if a.columnNames != nil {
+					evalCtx = &EvaluationContext{
+						columnNames: a.columnNames,
+					}
+				}
+				
+				var val interface{}
+				var err error
+				if evalCtx != nil {
+					val, err = evaluateExpressionWithContext(agg.Input, input, row, evalCtx)
+				} else {
+					val, err = evaluateExpression(agg.Input, input, row)
+				}
+				if err != nil {
+					return nil, err
+				}
+				
+				// Skip NULL values for most aggregates
+				if val != nil {
+					if err := agg.Function.Update(states[i], val); err != nil {
+						return nil, err
+					}
 				}
 			}
 		}
@@ -147,14 +176,36 @@ func (a *AggregateOperator) executeGroupedAggregate(ctx context.Context, input *
 		
 		// Update aggregates for this group
 		for i, agg := range a.aggregates {
-			val, err := evaluateExpression(agg.Input, input, row)
-			if err != nil {
-				return nil, err
-			}
-			
-			if val != nil {
-				if err := agg.Function.Update(group.states[i], val); err != nil {
+			// Special handling for COUNT(*) - don't evaluate the * expression
+			if isCountStar(agg) {
+				// For COUNT(*), always pass 1 (any non-null value)
+				if err := agg.Function.Update(group.states[i], 1); err != nil {
 					return nil, err
+				}
+			} else {
+				// Create evaluation context if we have column names
+				var evalCtx *EvaluationContext
+				if a.columnNames != nil {
+					evalCtx = &EvaluationContext{
+						columnNames: a.columnNames,
+					}
+				}
+				
+				var val interface{}
+				var err error
+				if evalCtx != nil {
+					val, err = evaluateExpressionWithContext(agg.Input, input, row, evalCtx)
+				} else {
+					val, err = evaluateExpression(agg.Input, input, row)
+				}
+				if err != nil {
+					return nil, err
+				}
+				
+				if val != nil {
+					if err := agg.Function.Update(group.states[i], val); err != nil {
+						return nil, err
+					}
 				}
 			}
 		}
@@ -247,11 +298,11 @@ func (c *CountAggregate) Update(state AggregateState, value interface{}) error {
 
 func (c *CountAggregate) Finalize(state AggregateState) (interface{}, error) {
 	s := state.(*countState)
-	return s.count, nil
+	return int32(s.count), nil
 }
 
 func (c *CountAggregate) GetResultType() storage.LogicalType {
-	return storage.LogicalType{ID: storage.TypeBigInt}
+	return storage.LogicalType{ID: storage.TypeInteger}
 }
 
 func (s *countState) Reset() {
@@ -586,4 +637,19 @@ func CreateAggregateFunction(name string, inputType storage.LogicalType) (Aggreg
 	default:
 		return nil, fmt.Errorf("unknown aggregate function: %s", name)
 	}
+}
+
+// isCountStar checks if an aggregate is COUNT(*)
+func isCountStar(agg AggregateExpr) bool {
+	// Check if it's a COUNT function
+	if _, ok := agg.Function.(*CountAggregate); !ok {
+		return false
+	}
+	
+	// Check if the input is a * column reference
+	if colExpr, ok := agg.Input.(*ColumnExpr); ok && colExpr.Column == "*" {
+		return true
+	}
+	
+	return false
 }

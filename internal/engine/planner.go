@@ -2,6 +2,8 @@ package engine
 
 import (
 	"fmt"
+
+	"github.com/connerohnesorge/dukdb-go/internal/storage"
 )
 
 // Plan represents a query execution plan
@@ -21,6 +23,8 @@ const (
 	PlanSort
 	PlanLimit
 	PlanInsert
+	PlanUpdate
+	PlanDelete
 	PlanCreateTable
 	PlanDropTable
 	PlanTransaction
@@ -45,6 +49,10 @@ func (p *Planner) CreatePlan(stmt Statement) (Plan, error) {
 		return p.planSelect(s)
 	case *InsertStatement:
 		return p.planInsert(s)
+	case *UpdateStatement:
+		return p.planUpdate(s)
+	case *DeleteStatement:
+		return p.planDelete(s)
 	case *CreateTableStatement:
 		return p.planCreateTable(s)
 	case *DropTableStatement:
@@ -64,13 +72,14 @@ func (p *Planner) CreatePlan(stmt Statement) (Plan, error) {
 func (p *Planner) planSelect(stmt *SelectStatement) (Plan, error) {
 	var basePlan Plan
 	
+	
 	if stmt.From == nil {
 		// Handle SELECT without FROM (e.g., SELECT 1)
 		basePlan = &ValuesPlan{
 			Expressions: stmt.Columns,
 		}
 	} else {
-		// Resolve table
+		// Resolve main table
 		schema := stmt.From.Schema
 		if schema == "" {
 			schema = "main"
@@ -81,9 +90,29 @@ func (p *Planner) planSelect(stmt *SelectStatement) (Plan, error) {
 			return nil, fmt.Errorf("table not found: %w", err)
 		}
 		
-		// Create scan plan
+		// Create scan plan for main table
 		basePlan = &ScanPlan{
 			Table: table,
+		}
+		
+		// Add JOINs if any
+		for _, join := range stmt.Joins {
+			joinSchema := join.Table.Schema
+			if joinSchema == "" {
+				joinSchema = "main"
+			}
+			
+			joinTable, err := p.catalog.GetTable(joinSchema, join.Table.Table)
+			if err != nil {
+				return nil, fmt.Errorf("join table not found: %w", err)
+			}
+			
+			basePlan = &JoinPlan{
+				Left:      basePlan,
+				Right:     &ScanPlan{Table: joinTable},
+				JoinType:  join.Type,
+				Condition: join.Condition,
+			}
 		}
 	}
 	
@@ -97,11 +126,56 @@ func (p *Planner) planSelect(stmt *SelectStatement) (Plan, error) {
 		}
 	}
 	
-	// Add projection
-	if len(stmt.Columns) > 0 {
-		plan = &ProjectPlan{
-			Child:       plan,
-			Expressions: stmt.Columns,
+	// Check if any columns are aggregate functions
+	var aggregates []AggregateExpr
+	var projections []Expression
+	
+	for _, col := range stmt.Columns {
+		if funcExpr, ok := col.(*FunctionExpr); ok {
+			// This is a function call - check if it's an aggregate
+			if isAggregateFunction(funcExpr.Name) {
+				agg, err := createAggregateExpr(funcExpr)
+				if err != nil {
+					return nil, err
+				}
+				aggregates = append(aggregates, agg)
+			} else {
+				// Non-aggregate function, treat as projection
+				projections = append(projections, col)
+			}
+		} else {
+			// Regular column, treat as projection
+			projections = append(projections, col)
+		}
+	}
+	
+	// If we have aggregates, create an aggregate plan
+	if len(aggregates) > 0 {
+		plan = &AggregatePlan{
+			Child:      plan,
+			GroupBy:    stmt.GroupBy,  // Will be empty for simple aggregates
+			Aggregates: aggregates,
+		}
+		
+		// For GROUP BY queries with aggregates, the AggregatePlan handles both
+		// GROUP BY columns and aggregate results - no additional projection needed
+	} else {
+		// Add projection for non-aggregate columns (only when no aggregates)
+		if len(projections) > 0 {
+			plan = &ProjectPlan{
+				Child:       plan,
+				Expressions: projections,
+			}
+		}
+	}
+	
+	// Add HAVING filter if exists (must come after aggregation)
+	if stmt.Having != nil {
+		// Transform HAVING clause to reference aggregate result columns
+		transformedHaving := p.transformHavingExpression(stmt.Having, aggregates, stmt.GroupBy)
+		plan = &FilterPlan{
+			Child:     plan,
+			Predicate: transformedHaving,
 		}
 	}
 	
@@ -214,6 +288,23 @@ type InsertPlan struct {
 
 func (p *InsertPlan) PlanType() PlanType { return PlanInsert }
 
+// UpdatePlan represents an update operation
+type UpdatePlan struct {
+	Table *Table
+	Sets  []SetClause
+	Where Expression
+}
+
+func (p *UpdatePlan) PlanType() PlanType { return PlanUpdate }
+
+// DeletePlan represents a delete operation
+type DeletePlan struct {
+	Table *Table
+	Where Expression
+}
+
+func (p *DeletePlan) PlanType() PlanType { return PlanDelete }
+
 // CreateTablePlan represents a create table operation
 type CreateTablePlan struct {
 	Schema  string
@@ -256,6 +347,55 @@ type AggregatePlan struct {
 }
 
 func (p *AggregatePlan) PlanType() PlanType { return PlanAggregate }
+
+// JoinPlan represents a join operation
+type JoinPlan struct {
+	Left      Plan
+	Right     Plan
+	JoinType  JoinType
+	Condition Expression
+}
+
+func (p *JoinPlan) PlanType() PlanType { return PlanJoin }
+// planUpdate creates a plan for UPDATE statement
+func (p *Planner) planUpdate(stmt *UpdateStatement) (Plan, error) {
+	// Resolve table
+	schema := "main"
+	if stmt.Table.Schema != "" {
+		schema = stmt.Table.Schema
+	}
+	
+	table, err := p.catalog.GetTable(schema, stmt.Table.Table)
+	if err != nil {
+		return nil, fmt.Errorf("table not found: %w", err)
+	}
+	
+	return &UpdatePlan{
+		Table: table,
+		Sets:  stmt.Sets,
+		Where: stmt.Where,
+	}, nil
+}
+
+// planDelete creates a plan for DELETE statement
+func (p *Planner) planDelete(stmt *DeleteStatement) (Plan, error) {
+	// Resolve table
+	schema := "main"
+	if stmt.Table.Schema != "" {
+		schema = stmt.Table.Schema
+	}
+	
+	table, err := p.catalog.GetTable(schema, stmt.Table.Table)
+	if err != nil {
+		return nil, fmt.Errorf("table not found: %w", err)
+	}
+	
+	return &DeletePlan{
+		Table: table,
+		Where: stmt.Where,
+	}, nil
+}
+
 // planDropTable creates a plan for DROP TABLE statement
 func (p *Planner) planDropTable(stmt *DropTableStatement) (Plan, error) {
 	return &DropTablePlan{
@@ -263,4 +403,194 @@ func (p *Planner) planDropTable(stmt *DropTableStatement) (Plan, error) {
 		Table:    stmt.Table,
 		IfExists: stmt.IfExists,
 	}, nil
+}
+
+// isAggregateFunction checks if a function name is an aggregate function
+func isAggregateFunction(name string) bool {
+	switch name {
+	case "COUNT", "SUM", "AVG", "MIN", "MAX", "STDDEV", "VARIANCE":
+		return true
+	default:
+		return false
+	}
+}
+
+// createAggregateExpr creates an AggregateExpr from a FunctionExpr
+func createAggregateExpr(funcExpr *FunctionExpr) (AggregateExpr, error) {
+	// Determine the input type based on the function arguments
+	var inputType storage.LogicalType
+	
+	if len(funcExpr.Args) == 0 || (len(funcExpr.Args) == 1 && isStarExpression(funcExpr.Args[0])) {
+		// Functions like COUNT() or COUNT(*) - input type doesn't matter
+		inputType = storage.LogicalType{ID: storage.TypeInteger}
+	} else if len(funcExpr.Args) == 1 {
+		// Functions like SUM(column) - infer type from column
+		if colExpr, ok := funcExpr.Args[0].(*ColumnExpr); ok {
+			// For common columns, infer the type
+			switch colExpr.Column {
+			case "amount":
+				inputType = storage.LogicalType{ID: storage.TypeDouble}
+			case "quantity", "id", "customer_id":
+				inputType = storage.LogicalType{ID: storage.TypeInteger}
+			case "order_date", "created_at", "timestamp":
+				inputType = storage.LogicalType{ID: storage.TypeTimestamp}
+			default:
+				// Default to double for numeric aggregates
+				inputType = storage.LogicalType{ID: storage.TypeDouble}
+			}
+		} else {
+			// Default type
+			inputType = storage.LogicalType{ID: storage.TypeInteger}
+		}
+	} else {
+		return AggregateExpr{}, fmt.Errorf("aggregate function %s does not support multiple arguments", funcExpr.Name)
+	}
+	
+	// Get the aggregate function
+	aggFunc, err := CreateAggregateFunction(funcExpr.Name, inputType)
+	if err != nil {
+		return AggregateExpr{}, err
+	}
+	
+	// Determine the input expression
+	var input Expression
+	if len(funcExpr.Args) == 0 {
+		// Functions like COUNT() with no args
+		input = &ConstantExpr{Value: 1}
+	} else if len(funcExpr.Args) == 1 {
+		// Functions like COUNT(*), SUM(column)
+		input = funcExpr.Args[0]
+	} else {
+		return AggregateExpr{}, fmt.Errorf("aggregate function %s does not support multiple arguments", funcExpr.Name)
+	}
+	
+	// Use the alias from the function expression if available
+	alias := funcExpr.Alias
+	if alias == "" {
+		alias = fmt.Sprintf("%s_%d", funcExpr.Name, 0) // Fallback alias
+	}
+	
+	return AggregateExpr{
+		Function: aggFunc,
+		Input:    input,
+		Alias:    alias,
+	}, nil
+}
+
+// isStarExpression checks if an expression represents * (e.g., COUNT(*))
+func isStarExpression(expr Expression) bool {
+	if colExpr, ok := expr.(*ColumnExpr); ok {
+		return colExpr.Column == "*"
+	}
+	return false
+}
+
+// transformHavingExpression transforms HAVING expressions to reference aggregate result columns
+func (p *Planner) transformHavingExpression(expr Expression, aggregates []AggregateExpr, groupBy []Expression) Expression {
+	switch e := expr.(type) {
+	case *BinaryExpr:
+		// Transform both sides of binary expression
+		left := p.transformHavingExpression(e.Left, aggregates, groupBy)
+		right := p.transformHavingExpression(e.Right, aggregates, groupBy)
+		return &BinaryExpr{
+			Left:  left,
+			Op:    e.Op,
+			Right: right,
+		}
+		
+	case *FunctionExpr:
+		// Transform aggregate functions to column references
+		if isAggregateFunction(e.Name) {
+			// Find matching aggregate in the aggregates list
+			for i, agg := range aggregates {
+				if p.matchesAggregate(e, agg) {
+					// Use the aggregate alias as the column name
+					colName := agg.Alias
+					if colName == "" {
+						colName = fmt.Sprintf("agg_%d", i)
+					}
+					
+					return &ColumnExpr{
+						Column: colName,
+					}
+				}
+			}
+			
+			// If no match found, fall back to original expression
+			return e
+		}
+		return e
+		
+	case *ColumnExpr:
+		// Check if this is a GROUP BY column reference
+		for _, groupExpr := range groupBy {
+			if colExpr, ok := groupExpr.(*ColumnExpr); ok {
+				if colExpr.Column == e.Column {
+					// This references a GROUP BY column, which is at index i in the result
+					return &ColumnExpr{
+						Column: e.Column, // Keep the same column name
+					}
+				}
+			}
+		}
+		return e
+		
+	default:
+		return e
+	}
+}
+
+// matchesAggregate checks if a function expression matches an aggregate
+func (p *Planner) matchesAggregate(funcExpr *FunctionExpr, agg AggregateExpr) bool {
+	// Get the function name from the aggregate function type
+	funcName := ""
+	switch agg.Function.(type) {
+	case *CountAggregate:
+		funcName = "COUNT"
+	case *SumAggregate:
+		funcName = "SUM"
+	case *AvgAggregate:
+		funcName = "AVG"
+	case *MinAggregate:
+		funcName = "MIN"
+	case *MaxAggregate:
+		funcName = "MAX"
+	default:
+		// For unknown functions, try to extract from alias
+		if agg.Alias != "" {
+			if funcExpr.Name == "COUNT" && (agg.Alias == "count" || agg.Alias == "COUNT") {
+				funcName = "COUNT"
+			} else if funcExpr.Name == "SUM" && (agg.Alias == "sum_amount" || agg.Alias == "SUM") {
+				funcName = "SUM"
+			}
+		}
+	}
+	
+	// For simple matching, compare function name and argument
+	if funcExpr.Name != funcName {
+		return false
+	}
+	
+	// Compare arguments
+	if len(funcExpr.Args) == 0 && isStarExpression(agg.Input) {
+		return true // COUNT() matches COUNT(*)
+	}
+	
+	if len(funcExpr.Args) == 1 {
+		funcArg := funcExpr.Args[0]
+		
+		// Handle COUNT(*) case
+		if isStarExpression(funcArg) && isStarExpression(agg.Input) {
+			return true
+		}
+		
+		// Handle column arguments
+		if funcCol, ok := funcArg.(*ColumnExpr); ok {
+			if aggCol, ok := agg.Input.(*ColumnExpr); ok {
+				return funcCol.Column == aggCol.Column
+			}
+		}
+	}
+	
+	return false
 }

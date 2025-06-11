@@ -73,11 +73,16 @@ func (c *Conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	}
 
 	// Direct execution
-	err := c.engineConn.Execute(ctx, query)
+	result, err := c.engineConn.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-	return &Result{}, nil
+	
+	// Get rows affected before closing
+	rowsAffected := result.GetRowsAffected()
+	result.Close()
+	
+	return &Result{rowsAffected: rowsAffected}, nil
 }
 
 // QueryContext executes a query that returns rows
