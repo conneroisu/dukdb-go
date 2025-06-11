@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/connerohnesorge/dukdb-go/internal/purego"
+	"github.com/connerohnesorge/dukdb-go/internal/engine"
 )
 
 func init() {
@@ -16,54 +16,45 @@ func init() {
 // Driver implements the database/sql/driver.Driver interface
 type Driver struct {
 	mu       sync.Mutex
-	duckdb   *purego.DuckDB
-	initOnce sync.Once
+	databases map[string]*engine.Database
 }
 
 // Open returns a new connection to the database
 func (d *Driver) Open(name string) (driver.Conn, error) {
-	// Initialize DuckDB library once
-	var initErr error
-	d.initOnce.Do(func() {
-		d.duckdb, initErr = purego.New()
-	})
-
-	if initErr != nil {
-		return nil, fmt.Errorf("failed to initialize DuckDB: %w", initErr)
+	d.mu.Lock()
+	if d.databases == nil {
+		d.databases = make(map[string]*engine.Database)
 	}
+	d.mu.Unlock()
 
-	// Open database
-	db, err := d.duckdb.Open(name)
-	if err != nil {
-		return nil, err
+	// Get or create database
+	d.mu.Lock()
+	db, exists := d.databases[name]
+	if !exists {
+		var err error
+		db, err = engine.NewDatabase(name)
+		if err != nil {
+			d.mu.Unlock()
+			return nil, fmt.Errorf("failed to open database: %w", err)
+		}
+		d.databases[name] = db
 	}
+	d.mu.Unlock()
 
 	// Create connection
-	conn, err := d.duckdb.Connect(db)
+	conn, err := db.Connect()
 	if err != nil {
-		d.duckdb.CloseDatabase(db)
-		return nil, err
+		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 
 	return &Conn{
-		duckdb: d.duckdb,
-		db:     db,
-		conn:   conn,
+		engineConn: conn,
+		db:         db,
 	}, nil
 }
 
 // OpenConnector returns a new connector
 func (d *Driver) OpenConnector(name string) (driver.Connector, error) {
-	// Initialize DuckDB library once
-	var initErr error
-	d.initOnce.Do(func() {
-		d.duckdb, initErr = purego.New()
-	})
-
-	if initErr != nil {
-		return nil, fmt.Errorf("failed to initialize DuckDB: %w", initErr)
-	}
-
 	return &Connector{
 		driver: d,
 		name:   name,

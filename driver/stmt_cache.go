@@ -6,7 +6,7 @@ import (
 	"database/sql/driver"
 	"sync"
 
-	"github.com/connerohnesorge/dukdb-go/internal/purego"
+	"github.com/connerohnesorge/dukdb-go/internal/engine"
 )
 
 // StmtCacheConfig holds configuration for statement caching
@@ -34,7 +34,7 @@ type StmtCache struct {
 
 type cacheItem struct {
 	query string
-	stmt  purego.PreparedStatement
+	stmt  *engine.PreparedStatement
 }
 
 // NewStmtCache creates a new statement cache
@@ -51,27 +51,28 @@ func NewStmtCache(config *StmtCacheConfig) *StmtCache {
 	}
 }
 
-// Get retrieves a prepared statement from the cache
-func (c *StmtCache) Get(query string) (purego.PreparedStatement, bool) {
+// Get retrieves a statement from the cache
+func (c *StmtCache) Get(query string) (*engine.PreparedStatement, bool) {
 	if !c.enabled {
-		return 0, false
+		return nil, false
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if elem, exists := c.items[query]; exists {
-		// Move to front (most recently used)
-		c.lru.MoveToFront(elem)
-		item := elem.Value.(*cacheItem)
-		return item.stmt, true
+	elem, ok := c.items[query]
+	if !ok {
+		return nil, false
 	}
 
-	return 0, false
+	// Move to front (mark as recently used)
+	c.lru.MoveToFront(elem)
+	item := elem.Value.(*cacheItem)
+	return item.stmt, true
 }
 
-// Put adds a prepared statement to the cache
-func (c *StmtCache) Put(query string, stmt purego.PreparedStatement) {
+// Put adds a statement to the cache
+func (c *StmtCache) Put(query string, stmt *engine.PreparedStatement) {
 	if !c.enabled {
 		return
 	}
@@ -80,20 +81,17 @@ func (c *StmtCache) Put(query string, stmt purego.PreparedStatement) {
 	defer c.mu.Unlock()
 
 	// Check if already exists
-	if elem, exists := c.items[query]; exists {
-		// Update and move to front
+	if elem, ok := c.items[query]; ok {
 		c.lru.MoveToFront(elem)
-		item := elem.Value.(*cacheItem)
-		item.stmt = stmt
+		elem.Value.(*cacheItem).stmt = stmt
 		return
 	}
 
 	// Add new item
-	item := &cacheItem{
+	elem := c.lru.PushFront(&cacheItem{
 		query: query,
 		stmt:  stmt,
-	}
-	elem := c.lru.PushFront(item)
+	})
 	c.items[query] = elem
 
 	// Evict if necessary
@@ -102,71 +100,47 @@ func (c *StmtCache) Put(query string, stmt purego.PreparedStatement) {
 	}
 }
 
-// Remove removes a statement from the cache
-func (c *StmtCache) Remove(query string) {
-	if !c.enabled {
-		return
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if elem, exists := c.items[query]; exists {
-		c.removeElement(elem)
+// evictLRU removes the least recently used item
+func (c *StmtCache) evictLRU() {
+	elem := c.lru.Back()
+	if elem != nil {
+		item := elem.Value.(*cacheItem)
+		delete(c.items, item.query)
+		c.lru.Remove(elem)
+		// Note: Pure Go implementation doesn't need explicit cleanup
 	}
 }
 
-// Clear clears all cached statements
+// Clear removes all items from the cache
 func (c *StmtCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.items = make(map[string]*list.Element)
-	c.lru.Init()
+	c.lru = list.New()
 }
 
-// Size returns the current cache size
-func (c *StmtCache) Size() int {
+// Len returns the number of items in the cache
+func (c *StmtCache) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
 	return c.lru.Len()
 }
 
-// Stats returns cache statistics
-func (c *StmtCache) Stats() StmtCacheStats {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return StmtCacheStats{
-		Size:    c.lru.Len(),
-		MaxSize: c.maxSize,
-		Enabled: c.enabled,
-	}
+// Enable enables the cache
+func (c *StmtCache) Enable() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.enabled = true
 }
 
-// StmtCacheStats holds cache statistics
-type StmtCacheStats struct {
-	Size    int
-	MaxSize int
-	Enabled bool
-}
-
-func (c *StmtCache) evictLRU() {
-	if c.lru.Len() == 0 {
-		return
-	}
-
-	elem := c.lru.Back()
-	if elem != nil {
-		c.removeElement(elem)
-	}
-}
-
-func (c *StmtCache) removeElement(elem *list.Element) {
-	item := elem.Value.(*cacheItem)
-	delete(c.items, item.query)
-	c.lru.Remove(elem)
+// Disable disables the cache and clears it
+func (c *StmtCache) Disable() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.enabled = false
+	c.items = make(map[string]*list.Element)
+	c.lru = list.New()
 }
 
 // CachedConn wraps a connection with statement caching
@@ -175,49 +149,44 @@ type CachedConn struct {
 	cache *StmtCache
 }
 
-// NewCachedConn creates a connection with statement caching
-func NewCachedConn(conn *Conn, config *StmtCacheConfig) *CachedConn {
+// NewCachedConn creates a new cached connection
+func NewCachedConn(conn *Conn, cache *StmtCache) *CachedConn {
+	if cache == nil {
+		cache = NewStmtCache(nil)
+	}
 	return &CachedConn{
 		Conn:  conn,
-		cache: NewStmtCache(config),
+		cache: cache,
 	}
 }
 
 // PrepareContext prepares a statement with caching
 func (cc *CachedConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	// Try to get from cache first
-	if cachedStmt, found := cc.cache.Get(query); found {
+	// Check cache first
+	if stmt, ok := cc.cache.Get(query); ok {
 		return &Stmt{
-			conn:   cc.Conn,
-			duckdb: cc.duckdb,
-			stmt:   cachedStmt,
-			query:  query,
+			conn:       cc.Conn,
+			engineStmt: stmt,
+			query:      query,
 		}, nil
 	}
 
 	// Not in cache, prepare new statement
-	stmt, err := cc.duckdb.Prepare(cc.conn, query)
+	stmt, err := cc.Conn.PrepareContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 
 	// Add to cache
-	cc.cache.Put(query, stmt)
+	if s, ok := stmt.(*Stmt); ok {
+		cc.cache.Put(query, s.engineStmt)
+	}
 
-	return &Stmt{
-		conn:   cc.Conn,
-		duckdb: cc.duckdb,
-		stmt:   stmt,
-		query:  query,
-	}, nil
+	return stmt, nil
 }
 
-// CacheStats returns statement cache statistics
-func (cc *CachedConn) CacheStats() StmtCacheStats {
-	return cc.cache.Stats()
-}
-
-// ClearCache clears the statement cache
-func (cc *CachedConn) ClearCache() {
+// Close closes the connection and clears the cache
+func (cc *CachedConn) Close() error {
 	cc.cache.Clear()
+	return cc.Conn.Close()
 }

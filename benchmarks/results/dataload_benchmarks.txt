@@ -1,0 +1,43 @@
+--- FAIL: BenchmarkCSVLoad/Small_1K/PureGo
+    dataload_test.go:65: planning error: table not found: table csv_load_test not found in schema main
+--- FAIL: BenchmarkCSVLoad/Small_1K
+--- FAIL: BenchmarkCSVLoad/Medium_10K/PureGo
+    dataload_test.go:55: execution error: create table failed: table csv_load_test as 
+        							select * from read_csv_auto already exists in schema main
+--- FAIL: BenchmarkCSVLoad/Medium_10K
+--- FAIL: BenchmarkCSVLoad/Large_100K/PureGo
+    dataload_test.go:55: execution error: create table failed: table csv_load_test as 
+        							select * from read_csv_auto already exists in schema main
+--- FAIL: BenchmarkCSVLoad/Large_100K
+--- FAIL: BenchmarkCSVLoad
+--- FAIL: BenchmarkCSVExport/Rows_1000/PureGo
+    dataload_test.go:113: parse error: unsupported SQL statement: COPY (SELECT * FROM export_test) TO '/tmp/export_81847007.csv' (FORMAT CSV, HEADER)
+--- FAIL: BenchmarkCSVExport/Rows_1000
+--- FAIL: BenchmarkCSVExport/Rows_10000/PureGo
+    dataload_test.go:113: parse error: unsupported SQL statement: COPY (SELECT * FROM export_test) TO '/tmp/export_4215294853.csv' (FORMAT CSV, HEADER)
+--- FAIL: BenchmarkCSVExport/Rows_10000
+--- FAIL: BenchmarkCSVExport/Rows_50000/PureGo
+    dataload_test.go:113: parse error: unsupported SQL statement: COPY (SELECT * FROM export_test) TO '/tmp/export_2557567106.csv' (FORMAT CSV, HEADER)
+--- FAIL: BenchmarkCSVExport/Rows_50000
+--- FAIL: BenchmarkCSVExport
+--- FAIL: BenchmarkParquetLoad/PureGo
+    dataload_test.go:166: planning error: table not found: table parquet_load_test not found in schema main
+--- FAIL: BenchmarkParquetLoad
+--- FAIL: BenchmarkJSONLoad/Small_1K/PureGo
+    dataload_test.go:220: planning error: table not found: table json_load_test not found in schema main
+--- FAIL: BenchmarkJSONLoad/Small_1K
+--- FAIL: BenchmarkJSONLoad
+goos: linux
+goarch: amd64
+pkg: github.com/connerohnesorge/dukdb-go/benchmarks/dataload
+cpu: 11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz
+BenchmarkBulkInsertVsCopy/BulkInsert/PureGo-16         	     202	  18896444 ns/op	      1571 ns/row	11759608 B/op	  239795 allocs/op
+BenchmarkBulkInsertVsCopy/CSVCopy/PureGo-16            	--- FAIL: BenchmarkBulkInsertVsCopy/CSVCopy/PureGo-16
+    dataload_test.go:304: execution error: create table failed: table csv_copy_test as 
+        					select * from read_csv_auto already exists in schema main
+--- FAIL: BenchmarkBulkInsertVsCopy/CSVCopy
+--- FAIL: BenchmarkBulkInsertVsCopy
+FAIL
+exit status 1
+FAIL	github.com/connerohnesorge/dukdb-go/benchmarks/dataload	5.866s
+FAIL

@@ -74,6 +74,39 @@ func NewDecimalFromBigInt(value *big.Int, scale uint8) *Decimal {
 	}
 }
 
+// NewDecimalWithPrecision creates a new Decimal from a string with specific precision and scale
+func NewDecimalWithPrecision(s string, precision, scale uint8) (*Decimal, error) {
+	// Validate precision and scale
+	if precision < 1 || precision > 38 {
+		return nil, fmt.Errorf("precision must be between 1 and 38, got %d", precision)
+	}
+	if scale > precision {
+		return nil, fmt.Errorf("scale %d cannot exceed precision %d", scale, precision)
+	}
+
+	// First create the decimal normally
+	dec, err := NewDecimal(s)
+	if err != nil {
+		return nil, err
+	}
+
+	// Adjust scale if needed
+	if dec.scale != scale {
+		dec.adjustScale(scale)
+	}
+
+	// Validate that the value fits within the specified precision
+	if err := dec.validatePrecisionScale(precision, scale); err != nil {
+		return nil, err
+	}
+
+	// Set the precision and scale
+	dec.precision = precision
+	dec.scale = scale
+
+	return dec, nil
+}
+
 // String returns the string representation of the decimal
 func (d *Decimal) String() string {
 	if d.value == nil {

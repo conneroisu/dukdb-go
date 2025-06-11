@@ -17,36 +17,35 @@ type DuckDB struct {
 
 	// Query execution functions
 	duckdbQuery           func(conn Connection, query unsafe.Pointer, result *Result) uint32
-	duckdbExecute         func(conn Connection, query unsafe.Pointer, result *Result) uint32
 	duckdbPrepare         func(conn Connection, query unsafe.Pointer, stmt *PreparedStatement) uint32
 	duckdbExecutePrepared func(stmt PreparedStatement, result *Result) uint32
 	duckdbDestroyPrepare  func(stmt *PreparedStatement)
 	duckdbDestroyResult   func(result *Result)
 
 	// Result handling functions
-	duckdbResultError       func(result Result) unsafe.Pointer
-	duckdbRowCount          func(result Result) uint64
-	duckdbColumnCount       func(result Result) uint64
-	duckdbColumnsChanged    func(result Result) uint64
-	duckdbColumnName        func(result Result, col uint64) unsafe.Pointer
-	duckdbColumnType        func(result Result, col uint64) uint32
-	duckdbColumnLogicalType func(result Result, col uint64) LogicalType
+	duckdbResultError       func(result *Result) unsafe.Pointer
+	duckdbRowCount          func(result *Result) uint64
+	duckdbColumnCount       func(result *Result) uint64
+	duckdbColumnsChanged    func(result *Result) uint64
+	duckdbColumnName        func(result *Result, col uint64) unsafe.Pointer
+	duckdbColumnType        func(result *Result, col uint64) uint32
+	duckdbColumnLogicalType func(result *Result, col uint64) LogicalType
 
 	// Data access functions
-	duckdbValueBoolean func(result Result, col uint64, row uint64) bool
-	duckdbValueInt8    func(result Result, col uint64, row uint64) int8
-	duckdbValueInt16   func(result Result, col uint64, row uint64) int16
-	duckdbValueInt32   func(result Result, col uint64, row uint64) int32
-	duckdbValueInt64   func(result Result, col uint64, row uint64) int64
-	duckdbValueUint8   func(result Result, col uint64, row uint64) uint8
-	duckdbValueUint16  func(result Result, col uint64, row uint64) uint16
-	duckdbValueUint32  func(result Result, col uint64, row uint64) uint32
-	duckdbValueUint64  func(result Result, col uint64, row uint64) uint64
-	duckdbValueFloat   func(result Result, col uint64, row uint64) float32
-	duckdbValueDouble  func(result Result, col uint64, row uint64) float64
-	duckdbValueVarchar func(result Result, col uint64, row uint64) unsafe.Pointer
-	duckdbValueBlob    func(result Result, col uint64, row uint64) uintptr
-	duckdbValueIsNull  func(result Result, col uint64, row uint64) bool
+	duckdbValueBoolean func(result *Result, col uint64, row uint64) bool
+	duckdbValueInt8    func(result *Result, col uint64, row uint64) int8
+	duckdbValueInt16   func(result *Result, col uint64, row uint64) int16
+	duckdbValueInt32   func(result *Result, col uint64, row uint64) int32
+	duckdbValueInt64   func(result *Result, col uint64, row uint64) int64
+	duckdbValueUint8   func(result *Result, col uint64, row uint64) uint8
+	duckdbValueUint16  func(result *Result, col uint64, row uint64) uint16
+	duckdbValueUint32  func(result *Result, col uint64, row uint64) uint32
+	duckdbValueUint64  func(result *Result, col uint64, row uint64) uint64
+	duckdbValueFloat   func(result *Result, col uint64, row uint64) float32
+	duckdbValueDouble  func(result *Result, col uint64, row uint64) float64
+	duckdbValueVarchar func(result *Result, col uint64, row uint64) unsafe.Pointer
+	duckdbValueBlob    func(result *Result, col uint64, row uint64) uintptr
+	duckdbValueIsNull  func(result *Result, col uint64, row uint64) bool
 
 	// Config functions
 	duckdbCreateConfig  func(config *Config) uint32
@@ -54,11 +53,11 @@ type DuckDB struct {
 	duckdbGetConfigFlag func(idx uint64, name **byte, desc **byte) uint32
 	duckdbSetConfig     func(config Config, name unsafe.Pointer, option unsafe.Pointer) uint32
 	duckdbDestroyConfig func(config *Config)
-	duckdbOpenExtended  func(path unsafe.Pointer, db *Database, config Config, err **byte) uint32
+	duckdbOpenExt  func(path unsafe.Pointer, db *Database, config Config, err **byte) uint32
 
 	// Type functions
 	duckdbCreateLogicalType  func(typeId uint32) LogicalType
-	duckdbLogicalTypeGetId   func(logicalType LogicalType) uint32
+	duckdbGetTypeId   func(logicalType LogicalType) uint32
 	duckdbDestroyLogicalType func(logicalType *LogicalType)
 
 	// Parameter binding functions
@@ -80,9 +79,9 @@ type DuckDB struct {
 	duckdbPreparedStatementType func(stmt PreparedStatement) uint32
 
 	// Date/Time functions
-	duckdbValueDate      func(result Result, col uint64, row uint64) int32
-	duckdbValueTime      func(result Result, col uint64, row uint64) int64
-	duckdbValueTimestamp func(result Result, col uint64, row uint64) int64
+	duckdbValueDate      func(result *Result, col uint64, row uint64) int32
+	duckdbValueTime      func(result *Result, col uint64, row uint64) int64
+	duckdbValueTimestamp func(result *Result, col uint64, row uint64) int64
 	duckdbFromDate       func(date int32) uintptr
 	duckdbToDate         func(date uintptr) int32
 	duckdbFromTime       func(time int64) uintptr
@@ -96,16 +95,13 @@ type DuckDB struct {
 	// Decimal functions
 	duckdbDecimalWidth func(logicalType LogicalType) uint8
 	duckdbDecimalScale func(logicalType LogicalType) uint8
-	duckdbValueDecimal func(result Result, col uint64, row uint64) uintptr
-	duckdbBindDecimal  func(stmt PreparedStatement, idx uint64, val uintptr, width uint8, scale uint8) uint32
+	duckdbValueDecimal func(result *Result, col uint64, row uint64) uintptr
+	duckdbBindDecimal  func(stmt PreparedStatement, idx uint64, val uintptr) uint32
 
-	// Blob functions
-	duckdbBlobSize func(blob uintptr) uint64
-	duckdbBlobData func(blob uintptr) unsafe.Pointer
 
 	// List/Array functions
-	duckdbListSize          func(result Result, col uint64, row uint64) uint64
-	duckdbListValue         func(result Result, col uint64, row uint64) Value
+	duckdbListSize          func(result *Result, col uint64, row uint64) uint64
+	duckdbListValue         func(result *Result, col uint64, row uint64) Value
 	duckdbGetListChild      func(list Value) Value
 	duckdbGetListSize       func(list Value) uint64
 	duckdbCreateListType    func(childType LogicalType) LogicalType
@@ -126,7 +122,7 @@ type DuckDB struct {
 	duckdbUUIDToString func(value uintptr) unsafe.Pointer
 	duckdbStringToUUID func(str unsafe.Pointer) uintptr
 	duckdbBindUUID     func(stmt PreparedStatement, idx uint64, value uintptr) uint32
-	duckdbValueUUID    func(result Result, col uint64, row uint64) uintptr
+	duckdbValueUUID    func(result *Result, col uint64, row uint64) uintptr
 }
 
 // New creates a new DuckDB instance with loaded functions
@@ -166,9 +162,6 @@ func (d *DuckDB) registerFunctions() error {
 	// Query execution functions
 	if err := d.lib.RegisterFunc(&d.duckdbQuery, "duckdb_query"); err != nil {
 		return fmt.Errorf("failed to register duckdb_query: %w", err)
-	}
-	if err := d.lib.RegisterFunc(&d.duckdbExecute, "duckdb_execute"); err != nil {
-		return fmt.Errorf("failed to register duckdb_execute: %w", err)
 	}
 	if err := d.lib.RegisterFunc(&d.duckdbPrepare, "duckdb_prepare"); err != nil {
 		return fmt.Errorf("failed to register duckdb_prepare: %w", err)
@@ -266,16 +259,16 @@ func (d *DuckDB) registerFunctions() error {
 	if err := d.lib.RegisterFunc(&d.duckdbDestroyConfig, "duckdb_destroy_config"); err != nil {
 		return fmt.Errorf("failed to register duckdb_destroy_config: %w", err)
 	}
-	if err := d.lib.RegisterFunc(&d.duckdbOpenExtended, "duckdb_open_extended"); err != nil {
-		return fmt.Errorf("failed to register duckdb_open_extended: %w", err)
+	if err := d.lib.RegisterFunc(&d.duckdbOpenExt, "duckdb_open_ext"); err != nil {
+		return fmt.Errorf("failed to register duckdb_open_ext: %w", err)
 	}
 
 	// Type functions
 	if err := d.lib.RegisterFunc(&d.duckdbCreateLogicalType, "duckdb_create_logical_type"); err != nil {
 		return fmt.Errorf("failed to register duckdb_create_logical_type: %w", err)
 	}
-	if err := d.lib.RegisterFunc(&d.duckdbLogicalTypeGetId, "duckdb_logical_type_get_id"); err != nil {
-		return fmt.Errorf("failed to register duckdb_logical_type_get_id: %w", err)
+	if err := d.lib.RegisterFunc(&d.duckdbGetTypeId, "duckdb_get_type_id"); err != nil {
+		return fmt.Errorf("failed to register duckdb_get_type_id: %w", err)
 	}
 	if err := d.lib.RegisterFunc(&d.duckdbDestroyLogicalType, "duckdb_destroy_logical_type"); err != nil {
 		return fmt.Errorf("failed to register duckdb_destroy_logical_type: %w", err)
@@ -365,13 +358,6 @@ func (d *DuckDB) registerFunctions() error {
 		return fmt.Errorf("failed to register duckdb_bind_decimal: %w", err)
 	}
 
-	// Blob functions
-	if err := d.lib.RegisterFunc(&d.duckdbBlobSize, "duckdb_blob_size"); err != nil {
-		return fmt.Errorf("failed to register duckdb_blob_size: %w", err)
-	}
-	if err := d.lib.RegisterFunc(&d.duckdbBlobData, "duckdb_blob_data"); err != nil {
-		return fmt.Errorf("failed to register duckdb_blob_data: %w", err)
-	}
 
 	return nil
 }

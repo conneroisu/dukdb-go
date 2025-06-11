@@ -194,7 +194,7 @@ func (m *Map[K, V]) Scan(value interface{}) error {
 			} else {
 				return fmt.Errorf("cannot convert key %T to %T", k, key)
 			}
-			
+
 			// Type conversion for value
 			var value V
 			if convertedValue, ok := val.(V); ok {
@@ -202,7 +202,7 @@ func (m *Map[K, V]) Scan(value interface{}) error {
 			} else {
 				return fmt.Errorf("cannot convert value %T to %T", val, value)
 			}
-			
+
 			m.Set(key, value)
 		}
 		return nil
@@ -221,7 +221,7 @@ func (m *Map[K, V]) Scan(value interface{}) error {
 			} else {
 				return fmt.Errorf("cannot convert key %T to %T", k, key)
 			}
-			
+
 			// Type conversion for value
 			var value V
 			if convertedValue, ok := val.(V); ok {
@@ -229,7 +229,7 @@ func (m *Map[K, V]) Scan(value interface{}) error {
 			} else {
 				return fmt.Errorf("cannot convert value %T to %T", val, value)
 			}
-			
+
 			m.Set(key, value)
 		}
 		return nil
@@ -250,7 +250,7 @@ func (m *Map[K, V]) Scan(value interface{}) error {
 			} else {
 				return fmt.Errorf("cannot convert key %T to %T", k, key)
 			}
-			
+
 			// Type conversion for value
 			var value V
 			if convertedValue, ok := val.(V); ok {
@@ -258,7 +258,7 @@ func (m *Map[K, V]) Scan(value interface{}) error {
 			} else {
 				return fmt.Errorf("cannot convert value %T to %T", val, value)
 			}
-			
+
 			m.Set(key, value)
 		}
 		return nil

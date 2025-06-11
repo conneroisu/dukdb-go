@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 	"unsafe"
+
+	"github.com/connerohnesorge/dukdb-go/internal/types"
 )
 
 // Open opens a database connection
@@ -62,13 +64,13 @@ func (d *DuckDB) Execute(conn Connection, query string) error {
 	var result Result
 	queryPtr := toPtr(query)
 
-	if status := d.duckdbExecute(conn, queryPtr, &result); status != StateSuccess {
+	if status := d.duckdbQuery(conn, queryPtr, &result); status != StateSuccess {
 		errMsg := d.getResultError(result)
 		d.duckdbDestroyResult(&result)
 		return fmt.Errorf("execute failed: %s", errMsg)
 	}
 
-	rowsChanged := d.duckdbColumnsChanged(result)
+	rowsChanged := d.duckdbColumnsChanged(&result)
 	d.duckdbDestroyResult(&result)
 
 	// Store rows changed if needed
@@ -122,30 +124,30 @@ func (d *DuckDB) createQueryResult(result Result) *QueryResult {
 	qr := &QueryResult{
 		duckdb:   d,
 		result:   result,
-		rowCount: d.duckdbRowCount(result),
+		rowCount: d.duckdbRowCount(&result),
 	}
 
 	// Get column information
-	colCount := d.duckdbColumnCount(result)
+	colCount := d.duckdbColumnCount(&result)
 	qr.columns = make([]Column, colCount)
 
 	for i := uint64(0); i < colCount; i++ {
-		namePtr := d.duckdbColumnName(result, i)
-		colType := d.duckdbColumnType(result, i)
-		logicalType := d.duckdbColumnLogicalType(result, i)
-		
+		namePtr := d.duckdbColumnName(&result, i)
+		colType := d.duckdbColumnType(&result, i)
+		logicalType := d.duckdbColumnLogicalType(&result, i)
+
 		column := Column{
 			Name:        ptrToString(namePtr),
 			Type:        colType,
 			LogicalType: logicalType,
 		}
-		
+
 		// Extract precision and scale for DECIMAL types
 		if colType == TypeDecimal {
 			column.Precision = d.duckdbDecimalWidth(logicalType)
 			column.Scale = d.duckdbDecimalScale(logicalType)
 		}
-		
+
 		qr.columns[i] = column
 	}
 
@@ -181,71 +183,68 @@ func (qr *QueryResult) GetValue(col, row uint64) (interface{}, error) {
 	}
 
 	// Check for NULL
-	if qr.duckdb.duckdbValueIsNull(qr.result, col, row) {
+	if qr.duckdb.duckdbValueIsNull(&qr.result, col, row) {
 		return nil, nil
 	}
 
 	// Get value based on type
 	switch qr.columns[col].Type {
 	case TypeBoolean:
-		return qr.duckdb.duckdbValueBoolean(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueBoolean(&qr.result, col, row), nil
 	case TypeTinyint:
-		return qr.duckdb.duckdbValueInt8(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueInt8(&qr.result, col, row), nil
 	case TypeSmallint:
-		return qr.duckdb.duckdbValueInt16(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueInt16(&qr.result, col, row), nil
 	case TypeInteger:
-		return qr.duckdb.duckdbValueInt32(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueInt32(&qr.result, col, row), nil
 	case TypeBigint:
-		return qr.duckdb.duckdbValueInt64(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueInt64(&qr.result, col, row), nil
 	case TypeUTinyint:
-		return qr.duckdb.duckdbValueUint8(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueUint8(&qr.result, col, row), nil
 	case TypeUSmallint:
-		return qr.duckdb.duckdbValueUint16(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueUint16(&qr.result, col, row), nil
 	case TypeUInteger:
-		return qr.duckdb.duckdbValueUint32(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueUint32(&qr.result, col, row), nil
 	case TypeUBigint:
-		return qr.duckdb.duckdbValueUint64(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueUint64(&qr.result, col, row), nil
 	case TypeFloat:
-		return qr.duckdb.duckdbValueFloat(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueFloat(&qr.result, col, row), nil
 	case TypeDouble:
-		return qr.duckdb.duckdbValueDouble(qr.result, col, row), nil
+		return qr.duckdb.duckdbValueDouble(&qr.result, col, row), nil
 	case TypeVarchar:
-		ptr := qr.duckdb.duckdbValueVarchar(qr.result, col, row)
+		ptr := qr.duckdb.duckdbValueVarchar(&qr.result, col, row)
 		return ptrToString(ptr), nil
 	case TypeBlob:
-		blobPtr := qr.duckdb.duckdbValueBlob(qr.result, col, row)
-		if blobPtr == 0 {
-			return []byte{}, nil
-		}
-		size := qr.duckdb.duckdbBlobSize(blobPtr)
-		if size == 0 {
-			return []byte{}, nil
-		}
-		data := qr.duckdb.duckdbBlobData(blobPtr)
-		// Copy the data to a Go slice
-		result := make([]byte, size)
-		copy(result, (*[1 << 30]byte)(data)[:size:size])
-		return result, nil
+		// For now, return blob as string
+		ptr := qr.duckdb.duckdbValueVarchar(&qr.result, col, row)
+		str := ptrToString(ptr)
+		// Convert hex string to bytes if needed
+		return []byte(str), nil
 	case TypeDate:
-		days := qr.duckdb.duckdbValueDate(qr.result, col, row)
+		days := qr.duckdb.duckdbValueDate(&qr.result, col, row)
 		return duckdbDateToTime(days), nil
 	case TypeTime:
-		microseconds := qr.duckdb.duckdbValueTime(qr.result, col, row)
+		microseconds := qr.duckdb.duckdbValueTime(&qr.result, col, row)
 		return duckdbTimeToTime(microseconds), nil
 	case TypeTimestamp, TypeTimestampS, TypeTimestampMS, TypeTimestampNS, TypeTimestampTZ:
-		microseconds := qr.duckdb.duckdbValueTimestamp(qr.result, col, row)
+		microseconds := qr.duckdb.duckdbValueTimestamp(&qr.result, col, row)
 		return duckdbTimestampToTime(microseconds), nil
 	case TypeDecimal:
-		// Get decimal as double for now
-		// TODO: Implement proper decimal with scale/precision
-		return qr.duckdb.duckdbValueDouble(qr.result, col, row), nil
+		// For now, get decimal as string
+		ptr := qr.duckdb.duckdbValueVarchar(&qr.result, col, row)
+		str := ptrToString(ptr)
+		// Get precision and scale from column metadata
+		precision := qr.columns[col].Precision
+		scale := qr.columns[col].Scale
+		// Create decimal from string with precision and scale
+		return types.NewDecimalWithPrecision(str, precision, scale)
 	case TypeHugeint:
 		// Get as string and parse
-		ptr := qr.duckdb.duckdbValueVarchar(qr.result, col, row)
+		ptr := qr.duckdb.duckdbValueVarchar(&qr.result, col, row)
 		return ptrToString(ptr), nil
 	case TypeUUID:
 		// Get UUID as bytes
-		uuidPtr := qr.duckdb.duckdbValueUUID(qr.result, col, row)
+		uuidPtr := qr.duckdb.duckdbValueUUID(&qr.result, col, row)
 		if uuidPtr == 0 {
 			return nil, nil
 		}
@@ -254,19 +253,19 @@ func (qr *QueryResult) GetValue(col, row uint64) (interface{}, error) {
 		return ptrToString(strPtr), nil
 	case TypeList:
 		// For now, get as JSON string
-		ptr := qr.duckdb.duckdbValueVarchar(qr.result, col, row)
+		ptr := qr.duckdb.duckdbValueVarchar(&qr.result, col, row)
 		return ptrToString(ptr), nil
 	case TypeStruct:
 		// For now, get as JSON string
-		ptr := qr.duckdb.duckdbValueVarchar(qr.result, col, row)
+		ptr := qr.duckdb.duckdbValueVarchar(&qr.result, col, row)
 		return ptrToString(ptr), nil
 	case TypeMap:
 		// For now, get as JSON string
-		ptr := qr.duckdb.duckdbValueVarchar(qr.result, col, row)
+		ptr := qr.duckdb.duckdbValueVarchar(&qr.result, col, row)
 		return ptrToString(ptr), nil
 	default:
 		// Try to get as string for unsupported types
-		ptr := qr.duckdb.duckdbValueVarchar(qr.result, col, row)
+		ptr := qr.duckdb.duckdbValueVarchar(&qr.result, col, row)
 		return ptrToString(ptr), nil
 	}
 }
@@ -278,7 +277,7 @@ func (d *DuckDB) getResultError(result Result) string {
 	if result == 0 {
 		return "unknown error"
 	}
-	errPtr := d.duckdbResultError(result)
+	errPtr := d.duckdbResultError(&result)
 	if errPtr == nil {
 		return "unknown error"
 	}
@@ -407,3 +406,4 @@ func (d *DuckDB) ClearBindings(stmt PreparedStatement) error {
 	}
 	return nil
 }
+

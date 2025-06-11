@@ -7,23 +7,29 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/connerohnesorge/dukdb-go/internal/purego"
+	"github.com/connerohnesorge/dukdb-go/internal/engine"
+	"github.com/connerohnesorge/dukdb-go/internal/storage"
+	"github.com/connerohnesorge/dukdb-go/internal/types"
 )
 
 // Rows implements the database/sql/driver.Rows interface
 type Rows struct {
-	duckdb  *purego.DuckDB
-	result  *purego.QueryResult
-	cols    []purego.Column
-	current uint64
-	stmt    *Stmt           // Optional: set if rows came from a prepared statement
-	ctx     context.Context // Context for cancellation
+	engineResult *engine.QueryResult
+	columns      []engine.Column
+	currentChunk *storage.DataChunk
+	chunkRow     int
+	stmt         *Stmt           // Optional: set if rows came from a prepared statement
+	ctx          context.Context // Context for cancellation
 }
 
 // Columns returns the column names
 func (r *Rows) Columns() []string {
-	names := make([]string, len(r.cols))
-	for i, col := range r.cols {
+	if r.columns == nil && r.engineResult != nil {
+		r.columns = r.engineResult.Columns()
+	}
+
+	names := make([]string, len(r.columns))
+	for i, col := range r.columns {
 		names[i] = col.Name
 	}
 	return names
@@ -31,9 +37,9 @@ func (r *Rows) Columns() []string {
 
 // Close closes the rows iterator
 func (r *Rows) Close() error {
-	if r.result != nil {
-		r.result.Close()
-		r.result = nil
+	if r.engineResult != nil {
+		r.engineResult.Close()
+		r.engineResult = nil
 	}
 
 	// Close the statement if this came from a prepared statement
@@ -47,7 +53,7 @@ func (r *Rows) Close() error {
 
 // Next populates the provided slice with the next row values
 func (r *Rows) Next(dest []driver.Value) error {
-	// Check for context cancellation
+	// Check context cancellation
 	if r.ctx != nil {
 		select {
 		case <-r.ctx.Done():
@@ -56,202 +62,177 @@ func (r *Rows) Next(dest []driver.Value) error {
 		}
 	}
 
-	if r.current >= r.result.RowCount() {
-		return io.EOF
+	// Get next chunk if needed
+	if r.currentChunk == nil || r.chunkRow >= r.currentChunk.Size() {
+		if !r.engineResult.Next() {
+			return io.EOF
+		}
+		r.currentChunk = r.engineResult.GetChunk()
+		r.chunkRow = 0
 	}
 
-	// Fetch values for current row
+	// Extract values from current row
 	for i := range dest {
-		val, err := r.result.GetValue(uint64(i), r.current)
+		if i >= len(r.columns) {
+			return fmt.Errorf("destination has more columns than result")
+		}
+
+		val, err := r.currentChunk.GetValue(i, r.chunkRow)
 		if err != nil {
 			return err
 		}
-		dest[i] = val
+
+		// Convert to driver.Value
+		dest[i] = convertToDriverValue(val)
 	}
 
-	r.current++
+	r.chunkRow++
 	return nil
 }
 
 // ColumnTypeDatabaseTypeName returns the database type name
 func (r *Rows) ColumnTypeDatabaseTypeName(index int) string {
-	if index < 0 || index >= len(r.cols) {
+	if index < 0 || index >= len(r.columns) {
 		return ""
 	}
 
-	return getTypeName(r.cols[index].Type)
+	switch r.columns[index].Type.ID {
+	case storage.TypeBoolean:
+		return "BOOLEAN"
+	case storage.TypeTinyInt:
+		return "TINYINT"
+	case storage.TypeSmallInt:
+		return "SMALLINT"
+	case storage.TypeInteger:
+		return "INTEGER"
+	case storage.TypeBigInt:
+		return "BIGINT"
+	case storage.TypeFloat:
+		return "FLOAT"
+	case storage.TypeDouble:
+		return "DOUBLE"
+	case storage.TypeDecimal:
+		return "DECIMAL"
+	case storage.TypeVarchar:
+		return "VARCHAR"
+	case storage.TypeDate:
+		return "DATE"
+	case storage.TypeTime:
+		return "TIME"
+	case storage.TypeTimestamp:
+		return "TIMESTAMP"
+	case storage.TypeInterval:
+		return "INTERVAL"
+	case storage.TypeList:
+		return "LIST"
+	case storage.TypeStruct:
+		return "STRUCT"
+	case storage.TypeMap:
+		return "MAP"
+	default:
+		return ""
+	}
 }
 
-// ColumnTypeLength returns the length of the column type
-func (r *Rows) ColumnTypeLength(index int) (int64, bool) {
-	if index < 0 || index >= len(r.cols) {
+// ColumnTypeLength returns the column length
+func (r *Rows) ColumnTypeLength(index int) (length int64, ok bool) {
+	if index < 0 || index >= len(r.columns) {
 		return 0, false
 	}
-	
-	switch r.cols[index].Type {
-	case purego.TypeVarchar:
-		// VARCHAR has variable length, return a reasonable default
-		return 65535, true
-	case purego.TypeBlob:
-		// BLOB has variable length
-		return 65535, true
-	case purego.TypeDecimal:
-		// For DECIMAL, length could be considered as precision
-		return int64(r.cols[index].Precision), true
-	case purego.TypeTinyint:
-		return 1, true
-	case purego.TypeSmallint:
-		return 2, true
-	case purego.TypeInteger:
-		return 4, true
-	case purego.TypeBigint:
-		return 8, true
-	case purego.TypeFloat:
-		return 4, true
-	case purego.TypeDouble:
-		return 8, true
-	case purego.TypeBoolean:
-		return 1, true
-	case purego.TypeDate:
-		return 4, true
-	case purego.TypeTime:
-		return 8, true
-	case purego.TypeTimestamp, purego.TypeTimestampS, purego.TypeTimestampMS, purego.TypeTimestampNS:
-		return 8, true
-	case purego.TypeUUID:
-		return 16, true
-	default:
-		return 0, false
+
+	colType := r.columns[index].Type
+	switch colType.ID {
+	case storage.TypeVarchar:
+		if colType.Width > 0 {
+			return int64(colType.Width), true
+		}
+	case storage.TypeDecimal:
+		return int64(colType.Width), true
 	}
+
+	return 0, false
 }
 
 // ColumnTypeNullable returns whether the column can be null
-func (r *Rows) ColumnTypeNullable(index int) (bool, bool) {
-	// DuckDB columns are nullable by default
+func (r *Rows) ColumnTypeNullable(index int) (nullable, ok bool) {
+	// DuckDB columns are nullable by default unless specified otherwise
 	return true, true
 }
 
-// ColumnTypePrecisionScale returns the precision and scale for numeric types
-func (r *Rows) ColumnTypePrecisionScale(index int) (int64, int64, bool) {
-	if index < 0 || index >= len(r.cols) {
+// ColumnTypePrecisionScale returns the precision and scale for decimal types
+func (r *Rows) ColumnTypePrecisionScale(index int) (precision, scale int64, ok bool) {
+	if index < 0 || index >= len(r.columns) {
 		return 0, 0, false
 	}
-	
-	// Return precision and scale for DECIMAL types
-	if r.cols[index].Type == purego.TypeDecimal {
-		return int64(r.cols[index].Precision), int64(r.cols[index].Scale), true
+
+	colType := r.columns[index].Type
+	if colType.ID == storage.TypeDecimal {
+		return int64(colType.Width), int64(colType.Scale), true
 	}
-	
-	// For other numeric types, return appropriate defaults
-	switch r.cols[index].Type {
-	case purego.TypeFloat:
-		return 7, 0, true // Single precision float
-	case purego.TypeDouble:
-		return 15, 0, true // Double precision float
-	default:
-		return 0, 0, false
-	}
+
+	return 0, 0, false
 }
 
-// ColumnTypeScanType returns the Go type suitable for scanning
+// ColumnTypeScanType returns the Go type for scanning
 func (r *Rows) ColumnTypeScanType(index int) reflect.Type {
-	if index < 0 || index >= len(r.cols) {
-		return reflect.TypeOf(interface{}(nil))
+	if index < 0 || index >= len(r.columns) {
+		return nil
 	}
 
-	switch r.cols[index].Type {
-	case purego.TypeBoolean:
-		return reflect.TypeOf(bool(false))
-	case purego.TypeTinyint:
+	switch r.columns[index].Type.ID {
+	case storage.TypeBoolean:
+		return reflect.TypeOf(false)
+	case storage.TypeTinyInt:
 		return reflect.TypeOf(int8(0))
-	case purego.TypeSmallint:
+	case storage.TypeSmallInt:
 		return reflect.TypeOf(int16(0))
-	case purego.TypeInteger:
+	case storage.TypeInteger:
 		return reflect.TypeOf(int32(0))
-	case purego.TypeBigint:
+	case storage.TypeBigInt:
 		return reflect.TypeOf(int64(0))
-	case purego.TypeFloat:
+	case storage.TypeFloat:
 		return reflect.TypeOf(float32(0))
-	case purego.TypeDouble:
+	case storage.TypeDouble:
 		return reflect.TypeOf(float64(0))
-	case purego.TypeDecimal:
-		// Import the types package to reference Decimal
-		return reflect.TypeOf(string("")) // Return string for now, can be scanned into types.Decimal
-	case purego.TypeVarchar:
-		return reflect.TypeOf(string(""))
-	case purego.TypeBlob:
-		return reflect.TypeOf([]byte(nil))
+	case storage.TypeDecimal:
+		return reflect.TypeOf(&types.Decimal{})
+	case storage.TypeVarchar:
+		return reflect.TypeOf("")
+	case storage.TypeDate:
+		return reflect.TypeOf(int32(0))
+	case storage.TypeTime:
+		return reflect.TypeOf(int64(0))
+	case storage.TypeTimestamp:
+		return reflect.TypeOf(int64(0))
+	case storage.TypeInterval:
+		return reflect.TypeOf(types.Interval{})
+	case storage.TypeList:
+		return reflect.TypeOf([]any{})
+	case storage.TypeStruct:
+		return reflect.TypeOf(map[string]any{})
+	case storage.TypeMap:
+		return reflect.TypeOf(map[string]any{})
 	default:
-		return reflect.TypeOf(interface{}(nil))
+		return reflect.TypeOf(new(any)).Elem()
 	}
 }
 
-// getTypeName returns the string name for a DuckDB type
-func getTypeName(typeID uint32) string {
-	switch typeID {
-	case purego.TypeBoolean:
-		return "BOOLEAN"
-	case purego.TypeTinyint:
-		return "TINYINT"
-	case purego.TypeSmallint:
-		return "SMALLINT"
-	case purego.TypeInteger:
-		return "INTEGER"
-	case purego.TypeBigint:
-		return "BIGINT"
-	case purego.TypeUTinyint:
-		return "UTINYINT"
-	case purego.TypeUSmallint:
-		return "USMALLINT"
-	case purego.TypeUInteger:
-		return "UINTEGER"
-	case purego.TypeUBigint:
-		return "UBIGINT"
-	case purego.TypeFloat:
-		return "FLOAT"
-	case purego.TypeDouble:
-		return "DOUBLE"
-	case purego.TypeTimestamp:
-		return "TIMESTAMP"
-	case purego.TypeDate:
-		return "DATE"
-	case purego.TypeTime:
-		return "TIME"
-	case purego.TypeInterval:
-		return "INTERVAL"
-	case purego.TypeHugeint:
-		return "HUGEINT"
-	case purego.TypeVarchar:
-		return "VARCHAR"
-	case purego.TypeBlob:
-		return "BLOB"
-	case purego.TypeDecimal:
-		return "DECIMAL"
-	case purego.TypeTimestampS:
-		return "TIMESTAMP_S"
-	case purego.TypeTimestampMS:
-		return "TIMESTAMP_MS"
-	case purego.TypeTimestampNS:
-		return "TIMESTAMP_NS"
-	case purego.TypeEnum:
-		return "ENUM"
-	case purego.TypeList:
-		return "LIST"
-	case purego.TypeStruct:
-		return "STRUCT"
-	case purego.TypeMap:
-		return "MAP"
-	case purego.TypeUUID:
-		return "UUID"
-	case purego.TypeUnion:
-		return "UNION"
-	case purego.TypeBit:
-		return "BIT"
-	case purego.TypeTimeTZ:
-		return "TIME WITH TIME ZONE"
-	case purego.TypeTimestampTZ:
-		return "TIMESTAMP WITH TIME ZONE"
+// convertToDriverValue converts internal values to driver.Value
+func convertToDriverValue(val any) driver.Value {
+	if val == nil {
+		return nil
+	}
+
+	switch v := val.(type) {
+	case bool, int8, int16, int32, int64, float32, float64, string:
+		return v
+	case []byte:
+		return v
+	case *types.Decimal:
+		// Return decimal as string for compatibility
+		return v.String()
 	default:
-		return fmt.Sprintf("UNKNOWN(%d)", typeID)
+		// For complex types, return as-is
+		return v
 	}
 }

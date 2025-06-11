@@ -19,7 +19,7 @@ func BenchmarkConnectionCreation(b *testing.B) {
 	}
 }
 
-func BenchmarkSimpleQuery(b *testing.B) {
+func BenchmarkSimpleQueryDB(b *testing.B) {
 	db, err := sql.Open("duckdb", ":memory:")
 	if err != nil {
 		b.Fatal(err)

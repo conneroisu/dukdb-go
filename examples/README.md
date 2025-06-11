@@ -94,6 +94,35 @@ go test -v
 go test -bench=. -benchmem
 ```
 
+### [Parquet Integration](./parquet-examples/) - Working with Parquet Files
+
+Learn how to integrate DuckDB with parquet-go for efficient columnar storage.
+
+**Features:**
+
+- Reading parquet files into DuckDB tables
+- Writing query results to parquet format
+- Data aggregation and analytics on parquet data
+- Simulated join operations between parquet files
+- Complex analytics with window function simulation
+
+**Examples Included:**
+
+1. **01_basic_read.go** - Basic parquet file reading and querying
+2. **02_write_parquet.go** - Writing query results to parquet files
+3. **03_aggregation.go** - Aggregation queries on parquet data
+4. **04_joins.go** - Join operations between multiple parquet files
+5. **05_window_functions.go** - Complex analytics with simulated window functions
+
+**Perfect for:** Data lake integration, columnar analytics, ETL pipelines
+
+```bash
+cd parquet-examples/
+go run 01_basic_read.go
+go run 02_write_parquet.go
+# etc.
+```
+
 ## 🚀 Quick Start
 
 ### Run All Examples
@@ -104,6 +133,10 @@ make run-basic
 make run-adv
 make run-complex
 make run-perf
+
+# Run parquet examples
+cd examples/parquet-examples/
+for f in *.go; do go run $f; done
 ```
 
 ### Test All Examples
@@ -157,6 +190,12 @@ go test -bench=. -benchmem
 - Learn benchmarking techniques
 - Optimize for your use case
 - Monitor production performance
+
+### 5. Integrate with **Parquet**
+
+- Work with columnar storage
+- Build analytics pipelines
+- Process large datasets efficiently
 
 ## 🎯 Use Case Mapping
 

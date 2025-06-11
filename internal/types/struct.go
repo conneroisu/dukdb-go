@@ -35,12 +35,12 @@ func (ss *StructSchema) AddField(name string, fieldType reflect.Type, required b
 		Type:     fieldType,
 		Required: required,
 	}
-	
+
 	// Track field order
 	if _, exists := ss.fields[name]; !exists {
 		ss.order = append(ss.order, name)
 	}
-	
+
 	ss.fields[name] = schema
 }
 
@@ -52,19 +52,19 @@ func (fs FieldSchema) ValidateValue(value interface{}) error {
 		}
 		return nil
 	}
-	
+
 	valueType := reflect.TypeOf(value)
 	if !valueType.AssignableTo(fs.Type) {
 		return fmt.Errorf("field %s expects type %s but got %s", fs.Name, fs.Type, valueType)
 	}
-	
+
 	return nil
 }
 
 // Struct represents a DuckDB STRUCT type with optional schema validation
 type Struct struct {
 	fields map[string]interface{}
-	order  []string // Preserve field order
+	order  []string      // Preserve field order
 	schema *StructSchema // Optional schema for validation
 }
 

@@ -3,16 +3,14 @@ package driver
 import (
 	"context"
 	"database/sql/driver"
-	"time"
 
-	"github.com/connerohnesorge/dukdb-go/internal/purego"
+	"github.com/connerohnesorge/dukdb-go/internal/engine"
 )
 
 // Conn implements the database/sql/driver.Conn interface
 type Conn struct {
-	duckdb *purego.DuckDB
-	db     purego.Database
-	conn   purego.Connection
+	engineConn *engine.Connection
+	db         *engine.Database
 }
 
 // Prepare returns a prepared statement
@@ -22,24 +20,21 @@ func (c *Conn) Prepare(query string) (driver.Stmt, error) {
 
 // PrepareContext returns a prepared statement
 func (c *Conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	stmt, err := c.duckdb.Prepare(c.conn, query)
+	prepared, err := c.engineConn.Prepare(query)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Stmt{
-		conn:   c,
-		duckdb: c.duckdb,
-		stmt:   stmt,
-		query:  query,
+		conn:       c,
+		engineStmt: prepared,
+		query:      query,
 	}, nil
 }
 
 // Close closes the connection
 func (c *Conn) Close() error {
-	c.duckdb.Disconnect(c.conn)
-	c.duckdb.CloseDatabase(c.db)
-	return nil
+	return c.engineConn.Close()
 }
 
 // Begin starts a transaction
@@ -50,7 +45,7 @@ func (c *Conn) Begin() (driver.Tx, error) {
 // BeginTx starts a transaction with options
 func (c *Conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	// Execute BEGIN statement
-	if err := c.duckdb.Execute(c.conn, "BEGIN TRANSACTION"); err != nil {
+	if err := c.engineConn.Execute(ctx, "BEGIN"); err != nil {
 		return nil, err
 	}
 
@@ -77,22 +72,12 @@ func (c *Conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		return stmt.(*Stmt).ExecContext(ctx, args)
 	}
 
-	// Direct execution with context support
-	done := make(chan error, 1)
-
-	go func() {
-		done <- c.duckdb.Execute(c.conn, query)
-	}()
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case err := <-done:
-		if err != nil {
-			return nil, err
-		}
-		return &Result{}, nil
+	// Direct execution
+	err := c.engineConn.Execute(ctx, query)
+	if err != nil {
+		return nil, err
 	}
+	return &Result{}, nil
 }
 
 // QueryContext executes a query that returns rows
@@ -115,39 +100,22 @@ func (c *Conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 		return stmt.(*Stmt).QueryContext(ctx, args)
 	}
 
-	// Direct query execution with context support
-	done := make(chan struct{})
-	var result *purego.QueryResult
-	var err error
-
-	go func() {
-		defer close(done)
-		result, err = c.duckdb.Query(c.conn, query)
-	}()
-
-	select {
-	case <-ctx.Done():
-		// Context cancelled - we can't easily cancel the C operation
-		// but we can return the error immediately
-		return nil, ctx.Err()
-	case <-done:
-		if err != nil {
-			return nil, err
-		}
-
-		return &Rows{
-			duckdb: c.duckdb,
-			result: result,
-			cols:   result.Columns(),
-			ctx:    ctx,
-		}, nil
+	// Direct query execution
+	result, err := c.engineConn.Query(ctx, query)
+	if err != nil {
+		return nil, err
 	}
+
+	return &Rows{
+		engineResult: result,
+		ctx:          ctx,
+	}, nil
 }
 
 // Ping verifies the connection
 func (c *Conn) Ping(ctx context.Context) error {
 	// Execute a simple query to verify connection
-	result, err := c.duckdb.Query(c.conn, "SELECT 1")
+	result, err := c.engineConn.Query(ctx, "SELECT 1")
 	if err != nil {
 		return err
 	}
@@ -157,11 +125,7 @@ func (c *Conn) Ping(ctx context.Context) error {
 
 // CheckNamedValue is called to check named values
 func (c *Conn) CheckNamedValue(nv *driver.NamedValue) error {
-	// Convert time.Time to int64 for DuckDB
-	if t, ok := nv.Value.(time.Time); ok {
-		// Store as microseconds since epoch for timestamp types
-		nv.Value = t.UnixNano() / 1000
-	}
+	// Our pure Go implementation handles type conversions internally
 	return nil
 }
 

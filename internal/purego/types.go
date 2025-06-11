@@ -81,6 +81,25 @@ type Vector struct {
 	Type     LogicalType
 }
 
+// Hugeint represents a DuckDB HUGEINT type
+type Hugeint struct {
+	Lower uint64
+	Upper int64
+}
+
+// Decimal represents a DuckDB DECIMAL type
+type Decimal struct {
+	Width uint8
+	Scale uint8
+	Value Hugeint
+}
+
+// Blob represents a DuckDB BLOB type
+type Blob struct {
+	Data unsafe.Pointer
+	Size uint64
+}
+
 // toPtr converts a Go string to a C string pointer
 func toPtr(s string) unsafe.Pointer {
 	if s == "" {

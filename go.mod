@@ -3,7 +3,7 @@ module github.com/connerohnesorge/dukdb-go
 go 1.23
 
 require (
-	github.com/ebitengine/purego v0.5.1
+	github.com/ebitengine/purego v0.8.4
 	github.com/parquet-go/parquet-go v0.25.1
 )
 

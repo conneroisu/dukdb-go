@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"context"
 	"database/sql/driver"
 )
 
@@ -16,7 +17,7 @@ func (tx *Tx) Commit() error {
 		return driver.ErrBadConn
 	}
 
-	err := tx.conn.duckdb.Execute(tx.conn.conn, "COMMIT")
+	err := tx.conn.engineConn.Execute(context.Background(), "COMMIT")
 	tx.finished = true
 	return err
 }
@@ -27,7 +28,7 @@ func (tx *Tx) Rollback() error {
 		return driver.ErrBadConn
 	}
 
-	err := tx.conn.duckdb.Execute(tx.conn.conn, "ROLLBACK")
+	err := tx.conn.engineConn.Execute(context.Background(), "ROLLBACK")
 	tx.finished = true
 	return err
 }
