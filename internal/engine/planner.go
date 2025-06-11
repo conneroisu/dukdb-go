@@ -28,6 +28,8 @@ const (
 	PlanCreateTable
 	PlanDropTable
 	PlanTransaction
+	PlanUnion
+	PlanSubquery
 )
 
 // Planner creates execution plans from SQL statements
@@ -63,6 +65,8 @@ func (p *Planner) CreatePlan(stmt Statement) (Plan, error) {
 		return &TransactionPlan{Type: TxnCommit}, nil
 	case *RollbackStatement:
 		return &TransactionPlan{Type: TxnRollback}, nil
+	case *UnionStatement:
+		return p.planUnion(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement type: %T", stmt)
 	}
@@ -143,6 +147,10 @@ func (p *Planner) planSelect(stmt *SelectStatement) (Plan, error) {
 				// Non-aggregate function, treat as projection
 				projections = append(projections, col)
 			}
+		} else if subqueryExpr, ok := col.(*SubqueryExpr); ok {
+			// Handle subquery in SELECT clause
+			// For now, treat as projection (scalar subquery)
+			projections = append(projections, subqueryExpr)
 		} else {
 			// Regular column, treat as projection
 			projections = append(projections, col)
@@ -357,6 +365,26 @@ type JoinPlan struct {
 }
 
 func (p *JoinPlan) PlanType() PlanType { return PlanJoin }
+
+// UnionPlan represents a UNION/UNION ALL operation
+type UnionPlan struct {
+	Left     Plan
+	Right    Plan
+	UnionAll bool // true for UNION ALL, false for UNION (distinct)
+	OrderBy  []OrderByExpr
+	Limit    *int64
+}
+
+func (p *UnionPlan) PlanType() PlanType { return PlanUnion }
+
+// SubqueryPlan represents a subquery operation
+type SubqueryPlan struct {
+	Plan         Plan        // The subquery plan
+	SubqueryType SubqueryType // scalar, exists, etc.
+}
+
+func (p *SubqueryPlan) PlanType() PlanType { return PlanSubquery }
+
 // planUpdate creates a plan for UPDATE statement
 func (p *Planner) planUpdate(stmt *UpdateStatement) (Plan, error) {
 	// Resolve table
@@ -593,4 +621,64 @@ func (p *Planner) matchesAggregate(funcExpr *FunctionExpr, agg AggregateExpr) bo
 	}
 	
 	return false
+}
+
+// planUnion creates a plan for a UNION/UNION ALL statement
+func (p *Planner) planUnion(stmt *UnionStatement) (Plan, error) {
+	// Plan the left side
+	leftPlan, err := p.CreatePlan(stmt.Left)
+	if err != nil {
+		return nil, fmt.Errorf("failed to plan left side of UNION: %w", err)
+	}
+	
+	// Plan the right side
+	rightPlan, err := p.CreatePlan(stmt.Right)
+	if err != nil {
+		return nil, fmt.Errorf("failed to plan right side of UNION: %w", err)
+	}
+	
+	// Create the union plan
+	unionPlan := &UnionPlan{
+		Left:     leftPlan,
+		Right:    rightPlan,
+		UnionAll: stmt.UnionAll,
+	}
+	
+	var plan Plan = unionPlan
+	
+	// Add ORDER BY if exists
+	if len(stmt.OrderBy) > 0 {
+		plan = &SortPlan{
+			Child:   plan,
+			OrderBy: stmt.OrderBy,
+		}
+	}
+	
+	// Add LIMIT if exists
+	if stmt.Limit != nil {
+		plan = &LimitPlan{
+			Child:  plan,
+			Limit:  *stmt.Limit,
+			Offset: 0,
+		}
+		if stmt.Offset != nil {
+			plan.(*LimitPlan).Offset = *stmt.Offset
+		}
+	}
+	
+	return plan, nil
+}
+
+// planSubquery creates a plan for a subquery expression
+func (p *Planner) planSubquery(subqueryExpr *SubqueryExpr) (Plan, error) {
+	// Plan the subquery statement
+	subqueryPlan, err := p.CreatePlan(subqueryExpr.Subquery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to plan subquery: %w", err)
+	}
+	
+	return &SubqueryPlan{
+		Plan:         subqueryPlan,
+		SubqueryType: subqueryExpr.Type,
+	}, nil
 }

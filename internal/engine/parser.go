@@ -28,6 +28,7 @@ const (
 	StmtBegin
 	StmtCommit
 	StmtRollback
+	StmtUnion
 )
 
 // ParseSQL parses a SQL string into a statement AST
@@ -77,6 +78,18 @@ type SelectStatement struct {
 	Limit      *int64
 	Offset     *int64
 }
+
+// UnionStatement represents a UNION/UNION ALL query
+type UnionStatement struct {
+	Left     Statement  // First SELECT statement
+	Right    Statement  // Second SELECT statement
+	UnionAll bool       // true for UNION ALL, false for UNION (distinct)
+	OrderBy  []OrderByExpr
+	Limit    *int64
+	Offset   *int64
+}
+
+func (s *UnionStatement) Type() StatementType { return StmtUnion }
 
 // JoinClause represents a JOIN in a SELECT statement
 type JoinClause struct {
@@ -198,6 +211,23 @@ type ParameterExpr struct {
 
 func (e *ParameterExpr) ExprType() ExpressionType { return ExprParameter }
 
+// SubqueryExpr represents a subquery expression
+type SubqueryExpr struct {
+	Subquery Statement
+	Type     SubqueryType // scalar, exists, etc.
+}
+
+func (e *SubqueryExpr) ExprType() ExpressionType { return ExprSubquery }
+
+// SubqueryType represents the type of subquery
+type SubqueryType int
+
+const (
+	SubqueryScalar SubqueryType = iota // Returns single value
+	SubqueryExists                     // EXISTS predicate
+	SubqueryIn                         // IN predicate
+)
+
 // FunctionExpr represents a function call
 type FunctionExpr struct {
 	Name  string
@@ -251,6 +281,13 @@ type OrderByExpr struct {
 
 // Simple parser implementations
 func parseSelect(sql string) (Statement, error) {
+	// Check for UNION first by looking for UNION/UNION ALL at the top level
+	// This needs to be done before cleaning up SQL as we need to preserve structure
+	unionStmt := parseUnion(sql)
+	if unionStmt != nil {
+		return unionStmt, nil
+	}
+	
 	// Clean up SQL formatting (remove extra whitespace, newlines)
 	sql = strings.TrimSpace(sql)
 	sql = strings.Join(strings.Fields(sql), " ")
@@ -286,7 +323,10 @@ func parseSelect(sql string) (Statement, error) {
 	
 	// Handle SELECT col1, col2 FROM table
 	if strings.Contains(strings.ToUpper(sql), " FROM ") {
-		fromIdx := strings.Index(strings.ToUpper(sql), " FROM ")
+		fromIdx := findTopLevelFromClause(sql)
+		if fromIdx == -1 {
+			return nil, fmt.Errorf("FROM clause not found")
+		}
 		selectPart := sql[7:fromIdx] // Skip "SELECT "
 		fromPart := sql[fromIdx+6:]   // Skip " FROM "
 		
@@ -320,7 +360,49 @@ func parseSelect(sql string) (Statement, error) {
 		}, nil
 	}
 	
-	return nil, fmt.Errorf("complex SELECT parsing not implemented")
+	// Handle column-only SELECT (e.g., SELECT 'High Value' as type, id, amount)
+	// Check if this might have WHERE, ORDER BY, etc without FROM
+	upperSQL := strings.ToUpper(sql)
+	selectEnd := len(sql)
+	
+	// Look for clauses that might appear after the column list
+	clauseKeywords := []string{" WHERE ", " ORDER BY ", " GROUP BY ", " HAVING ", " LIMIT "}
+	for _, keyword := range clauseKeywords {
+		if idx := strings.Index(upperSQL, keyword); idx != -1 {
+			selectEnd = idx
+			break
+		}
+	}
+	
+	selectPart := sql[7:selectEnd] // Skip "SELECT "
+	remainder := ""
+	if selectEnd < len(sql) {
+		remainder = sql[selectEnd:]
+	}
+	
+	columns, err := parseSelectColumns(selectPart)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse SELECT columns: %w", err)
+	}
+	
+	stmt := &SelectStatement{
+		Columns: columns,
+	}
+	
+	// Parse remainder for WHERE, ORDER BY, etc. if present
+	if remainder != "" {
+		where, groupBy, having, orderBy, limit, err := parseCompleteSelectRemainder(remainder)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse SELECT remainder: %w", err)
+		}
+		stmt.Where = where
+		stmt.GroupBy = groupBy
+		stmt.Having = having
+		stmt.OrderBy = orderBy
+		stmt.Limit = limit
+	}
+	
+	return stmt, nil
 }
 
 func parseInsert(sql string) (Statement, error) {
@@ -611,6 +693,35 @@ func parseWhereExpression(where string) Expression {
 func parseWhereExpressionWithParams(where string, paramIndex *int) Expression {
 	where = strings.TrimSpace(where)
 	upperWhere := strings.ToUpper(where)
+	
+	// Handle EXISTS subqueries first
+	if strings.HasPrefix(upperWhere, "EXISTS") {
+		return parseSubqueryInWhere(where)
+	}
+	
+	// Handle AND expressions first (higher precedence)
+	if andIdx := strings.Index(upperWhere, " AND "); andIdx != -1 {
+		left := strings.TrimSpace(where[:andIdx])
+		right := strings.TrimSpace(where[andIdx+5:]) // Skip " AND "
+		
+		return &BinaryExpr{
+			Left:  parseWhereExpressionWithParams(left, paramIndex),
+			Op:    OpAnd,
+			Right: parseWhereExpressionWithParams(right, paramIndex),
+		}
+	}
+	
+	// Handle OR expressions (lower precedence)
+	if orIdx := strings.Index(upperWhere, " OR "); orIdx != -1 {
+		left := strings.TrimSpace(where[:orIdx])
+		right := strings.TrimSpace(where[orIdx+4:]) // Skip " OR "
+		
+		return &BinaryExpr{
+			Left:  parseWhereExpressionWithParams(left, paramIndex),
+			Op:    OpOr,
+			Right: parseWhereExpressionWithParams(right, paramIndex),
+		}
+	}
 	
 	// Check for BETWEEN
 	if strings.Contains(upperWhere, " BETWEEN ") {
@@ -1041,7 +1152,7 @@ func parseFunctionExpression(funcCall string) Expression {
 
 // parseSelectColumns parses the column list in a SELECT statement
 func parseSelectColumns(selectPart string) ([]Expression, error) {
-	colParts := strings.Split(selectPart, ",")
+	colParts := splitSelectColumns(selectPart)
 	var columns []Expression
 	
 	for _, col := range colParts {
@@ -1060,29 +1171,14 @@ func parseSelectColumns(selectPart string) ([]Expression, error) {
 				alias := strings.TrimSpace(col[asIdx+4:]) // Skip " AS "
 				
 				// Parse the expression part
-				if strings.Contains(exprPart, "(") && strings.Contains(exprPart, ")") {
-					expr = parseFunctionExpression(exprPart)
-					if expr == nil {
-						expr = parseColumnExpression(exprPart)
-					} else {
-						// Set the alias for function expressions
-						if funcExpr, ok := expr.(*FunctionExpr); ok {
-							funcExpr.Alias = alias
-						}
-					}
-				} else {
-					expr = parseColumnExpression(exprPart)
+				expr = parseComplexExpressionValue(exprPart)
+				if funcExpr, ok := expr.(*FunctionExpr); ok {
+					// Set the alias for function expressions
+					funcExpr.Alias = alias
 				}
 			} else {
 				// No alias, parse the entire column
-				if strings.Contains(col, "(") && strings.Contains(col, ")") {
-					expr = parseFunctionExpression(col)
-					if expr == nil {
-						expr = parseColumnExpression(col)
-					}
-				} else {
-					expr = parseColumnExpression(col)
-				}
+				expr = parseComplexExpressionValue(col)
 			}
 			
 			// For now, ignore the alias and just use the expression
@@ -1666,4 +1762,444 @@ func parseSimpleExpression(expr string) Expression {
 	// Fallback to regular WHERE expression parsing
 	paramIdx := 1
 	return parseWhereExpressionWithParams(expr, &paramIdx)
+}
+
+// parseUnion parses UNION/UNION ALL statements
+func parseUnion(sql string) *UnionStatement {
+	// Clean up SQL formatting first
+	sql = strings.TrimSpace(sql)
+	sql = strings.Join(strings.Fields(sql), " ")
+	upperSQL := strings.ToUpper(sql)
+	
+	// Look for UNION ALL first (it's longer, so check it before UNION)
+	unionAllIdx := findTopLevelUnion(sql, upperSQL, "UNION ALL")
+	if unionAllIdx != -1 {
+		// Found UNION ALL
+		leftSQL := strings.TrimSpace(sql[:unionAllIdx])
+		rightSQL := strings.TrimSpace(sql[unionAllIdx+9:]) // Skip "UNION ALL"
+		
+		// Parse ORDER BY and LIMIT from the right side
+		rightSQL, orderBy, limit := extractUnionModifiers(rightSQL)
+		
+		// Parse left and right SELECT statements
+		leftStmt, err := parseSingleSelect(leftSQL)
+		if err != nil {
+			return nil
+		}
+		
+		rightStmt, err := parseSingleSelect(rightSQL)
+		if err != nil {
+			return nil
+		}
+		
+		return &UnionStatement{
+			Left:     leftStmt,
+			Right:    rightStmt,
+			UnionAll: true,
+			OrderBy:  orderBy,
+			Limit:    limit,
+		}
+	}
+	
+	// Look for UNION (without ALL)
+	unionIdx := findTopLevelUnion(sql, upperSQL, "UNION")
+	if unionIdx != -1 {
+		// Found UNION
+		leftSQL := strings.TrimSpace(sql[:unionIdx])
+		rightSQL := strings.TrimSpace(sql[unionIdx+5:]) // Skip "UNION"
+		
+		// Make sure this isn't actually UNION ALL
+		if strings.HasPrefix(strings.TrimSpace(rightSQL), "ALL") {
+			return nil // This is UNION ALL, already handled above
+		}
+		
+		// Parse ORDER BY and LIMIT from the right side
+		rightSQL, orderBy, limit := extractUnionModifiers(rightSQL)
+		
+		// Parse left and right SELECT statements
+		leftStmt, err := parseSingleSelect(leftSQL)
+		if err != nil {
+			return nil
+		}
+		
+		rightStmt, err := parseSingleSelect(rightSQL)
+		if err != nil {
+			return nil
+		}
+		
+		return &UnionStatement{
+			Left:     leftStmt,
+			Right:    rightStmt,
+			UnionAll: false,
+			OrderBy:  orderBy,
+			Limit:    limit,
+		}
+	}
+	
+	return nil
+}
+
+// findTopLevelUnion finds UNION/UNION ALL at the top level (not in subqueries)
+func findTopLevelUnion(sql, upperSQL, keyword string) int {
+	parenDepth := 0
+	inString := false
+	keywordLen := len(keyword)
+	
+	for i := 0; i < len(sql); i++ {
+		ch := sql[i]
+		
+		// Track string literals
+		if ch == '\'' && (i == 0 || sql[i-1] != '\\') {
+			inString = !inString
+			continue
+		}
+		
+		if inString {
+			continue
+		}
+		
+		// Track parentheses depth
+		if ch == '(' {
+			parenDepth++
+		} else if ch == ')' {
+			parenDepth--
+		}
+		
+		// Look for the keyword at the top level (parenDepth == 0)
+		if parenDepth == 0 && i+keywordLen <= len(upperSQL) {
+			if upperSQL[i:i+keywordLen] == keyword {
+				// Make sure it's a word boundary
+				if (i == 0 || upperSQL[i-1] == ' ') && 
+				   (i+keywordLen == len(upperSQL) || upperSQL[i+keywordLen] == ' ') {
+					return i
+				}
+			}
+		}
+	}
+	
+	return -1
+}
+
+// parseSingleSelect parses a single SELECT statement (not UNION)
+func parseSingleSelect(sql string) (Statement, error) {
+	sql = strings.TrimSpace(sql)
+	if !strings.HasPrefix(strings.ToUpper(sql), "SELECT") {
+		return nil, fmt.Errorf("expected SELECT statement")
+	}
+	
+	// Clean up SQL formatting
+	sql = strings.Join(strings.Fields(sql), " ")
+	
+	// Parse as a regular SELECT
+	parts := strings.Fields(sql)
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid SELECT statement")
+	}
+	
+	// Handle simple cases first
+	if len(parts) == 2 {
+		// SELECT constant
+		if num, err := parseNumber(parts[1]); err == nil {
+			return &SelectStatement{
+				Columns: []Expression{&ConstantExpr{Value: num}},
+			}, nil
+		}
+		return &SelectStatement{
+			Columns: []Expression{&ConstantExpr{Value: parts[1]}},
+		}, nil
+	}
+	
+	// Parse full SELECT statement
+	if strings.Contains(strings.ToUpper(sql), " FROM ") {
+		fromIdx := strings.Index(strings.ToUpper(sql), " FROM ")
+		selectPart := sql[7:fromIdx] // Skip "SELECT "
+		fromPart := sql[fromIdx+6:]   // Skip " FROM "
+		
+		// Parse columns
+		columns, err := parseSelectColumns(selectPart)
+		if err != nil {
+			return nil, err
+		}
+		
+		// Parse FROM clause
+		fromClause, joins, remainder, err := parseFromClause(fromPart)
+		if err != nil {
+			return nil, err
+		}
+		
+		// Parse remainder (WHERE, GROUP BY, etc.)
+		where, groupBy, having, orderBy, limit, err := parseCompleteSelectRemainder(remainder)
+		if err != nil {
+			return nil, err
+		}
+		
+		return &SelectStatement{
+			Columns: columns,
+			From:    fromClause,
+			Joins:   joins,
+			Where:   where,
+			GroupBy: groupBy,
+			Having:  having,
+			OrderBy: orderBy,
+			Limit:   limit,
+		}, nil
+	}
+	
+	// Handle column-only SELECT (e.g., SELECT 'High Value' as type, id, amount)
+	// But first check if this might have WHERE, ORDER BY, etc without FROM
+	upperSQL := strings.ToUpper(sql)
+	selectEnd := len(sql)
+	
+	// Look for clauses that might appear after the column list
+	clauseKeywords := []string{" WHERE ", " ORDER BY ", " GROUP BY ", " HAVING ", " LIMIT "}
+	for _, keyword := range clauseKeywords {
+		if idx := strings.Index(upperSQL, keyword); idx != -1 {
+			selectEnd = idx
+			break
+		}
+	}
+	
+	selectPart := sql[7:selectEnd] // Skip "SELECT "
+	remainder := ""
+	if selectEnd < len(sql) {
+		remainder = sql[selectEnd:]
+	}
+	
+	columns, err := parseSelectColumns(selectPart)
+	if err != nil {
+		return nil, err
+	}
+	
+	stmt := &SelectStatement{
+		Columns: columns,
+	}
+	
+	// Parse remainder for WHERE, ORDER BY, etc. if present
+	if remainder != "" {
+		where, groupBy, having, orderBy, limit, err := parseCompleteSelectRemainder(remainder)
+		if err != nil {
+			return nil, err
+		}
+		stmt.Where = where
+		stmt.GroupBy = groupBy
+		stmt.Having = having
+		stmt.OrderBy = orderBy
+		stmt.Limit = limit
+	}
+	
+	return stmt, nil
+}
+
+// extractUnionModifiers extracts ORDER BY and LIMIT from the end of a UNION query
+func extractUnionModifiers(sql string) (string, []OrderByExpr, *int64) {
+	sql = strings.TrimSpace(sql)
+	upperSQL := strings.ToUpper(sql)
+	
+	var orderBy []OrderByExpr
+	var limit *int64
+	
+	// Look for ORDER BY
+	orderByIdx := strings.LastIndex(upperSQL, " ORDER BY ")
+	if orderByIdx != -1 {
+		// Extract ORDER BY clause
+		orderByPart := sql[orderByIdx+10:] // Skip " ORDER BY "
+		
+		// Check if there's a LIMIT after ORDER BY
+		limitIdx := strings.Index(strings.ToUpper(orderByPart), " LIMIT ")
+		if limitIdx != -1 {
+			// Parse ORDER BY columns
+			orderByStr := orderByPart[:limitIdx]
+			orderBy = parseOrderByColumns(orderByStr)
+			
+			// Parse LIMIT
+			limitPart := strings.TrimSpace(orderByPart[limitIdx+7:]) // Skip " LIMIT "
+			if limitVal, err := strconv.ParseInt(limitPart, 10, 64); err == nil {
+				limit = &limitVal
+			}
+		} else {
+			// No LIMIT, just ORDER BY
+			orderBy = parseOrderByColumns(orderByPart)
+		}
+		
+		// Remove ORDER BY and LIMIT from SQL
+		sql = strings.TrimSpace(sql[:orderByIdx])
+	} else {
+		// No ORDER BY, check for LIMIT
+		limitIdx := strings.LastIndex(upperSQL, " LIMIT ")
+		if limitIdx != -1 {
+			limitPart := strings.TrimSpace(sql[limitIdx+7:]) // Skip " LIMIT "
+			if limitVal, err := strconv.ParseInt(limitPart, 10, 64); err == nil {
+				limit = &limitVal
+			}
+			
+			// Remove LIMIT from SQL
+			sql = strings.TrimSpace(sql[:limitIdx])
+		}
+	}
+	
+	return sql, orderBy, limit
+}
+
+// splitSelectColumns splits SELECT columns properly handling parentheses for subqueries
+func splitSelectColumns(selectPart string) []string {
+	var parts []string
+	var current strings.Builder
+	parenDepth := 0
+	inString := false
+	
+	for i, ch := range selectPart {
+		switch ch {
+		case '\'':
+			if i == 0 || selectPart[i-1] != '\\' {
+				inString = !inString
+			}
+			current.WriteRune(ch)
+		case '(':
+			if !inString {
+				parenDepth++
+			}
+			current.WriteRune(ch)
+		case ')':
+			if !inString {
+				parenDepth--
+			}
+			current.WriteRune(ch)
+		case ',':
+			if !inString && parenDepth == 0 {
+				// Only split on top-level commas
+				if current.Len() > 0 {
+					parts = append(parts, strings.TrimSpace(current.String()))
+					current.Reset()
+				}
+			} else {
+				current.WriteRune(ch)
+			}
+		default:
+			current.WriteRune(ch)
+		}
+	}
+	
+	if current.Len() > 0 {
+		parts = append(parts, strings.TrimSpace(current.String()))
+	}
+	
+	return parts
+}
+
+// findTopLevelFromClause finds the FROM clause at the top level (not in subqueries)
+func findTopLevelFromClause(sql string) int {
+	upperSQL := strings.ToUpper(sql)
+	parenDepth := 0
+	inString := false
+	
+	// Start after "SELECT "
+	for i := 7; i < len(sql)-5; i++ { // -5 to ensure we have room for " FROM"
+		ch := sql[i]
+		
+		// Track string literals
+		if ch == '\'' && (i == 0 || sql[i-1] != '\\') {
+			inString = !inString
+			continue
+		}
+		
+		if inString {
+			continue
+		}
+		
+		// Track parentheses depth
+		if ch == '(' {
+			parenDepth++
+		} else if ch == ')' {
+			parenDepth--
+		}
+		
+		// Look for " FROM " at the top level (parenDepth == 0)
+		if parenDepth == 0 && i+5 < len(upperSQL) { // Check bounds properly
+			if upperSQL[i:i+6] == " FROM " {
+				return i
+			}
+		}
+	}
+	
+	return -1
+}
+
+// parseComplexExpressionValue parses expressions that might include subqueries
+func parseComplexExpressionValue(s string) Expression {
+	s = strings.TrimSpace(s)
+	
+	// Check for subquery (starts with SELECT in parentheses)
+	if strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
+		inner := strings.TrimSpace(s[1 : len(s)-1])
+		if strings.HasPrefix(strings.ToUpper(inner), "SELECT") {
+			// This is a subquery
+			subqueryStmt, err := parseSelect(inner)
+			if err == nil {
+				return &SubqueryExpr{
+					Subquery: subqueryStmt,
+					Type:     SubqueryScalar,
+				}
+			} else {
+				// If subquery parsing fails, log the error but continue
+				// In a full implementation, we'd want better error handling
+				fmt.Printf("Warning: Failed to parse subquery: %v\n", err)
+			}
+		}
+	}
+	
+	// Check for function call (but not if it's actually a subquery)
+	if strings.Contains(s, "(") && strings.Contains(s, ")") && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(s[strings.Index(s, "(")+1:strings.LastIndex(s, ")")])), "SELECT") {
+		expr := parseFunctionExpression(s)
+		if expr != nil {
+			return expr
+		}
+	}
+	
+	// Parse as regular expression value
+	return parseExpressionValue(s)
+}
+
+// parseSubqueryInWhere parses subqueries in WHERE clauses (EXISTS, IN)
+func parseSubqueryInWhere(where string) Expression {
+	where = strings.TrimSpace(where)
+	upperWhere := strings.ToUpper(where)
+	
+	// Handle EXISTS subqueries
+	if strings.HasPrefix(upperWhere, "EXISTS") {
+		existsPart := strings.TrimSpace(where[6:]) // Skip "EXISTS"
+		if strings.HasPrefix(existsPart, "(") && strings.HasSuffix(existsPart, ")") {
+			inner := strings.TrimSpace(existsPart[1 : len(existsPart)-1])
+			if strings.HasPrefix(strings.ToUpper(inner), "SELECT") {
+				subqueryStmt, err := parseSelect(inner)
+				if err == nil {
+					return &SubqueryExpr{
+						Subquery: subqueryStmt,
+						Type:     SubqueryExists,
+					}
+				}
+			}
+		}
+	}
+	
+	// Handle regular WHERE expressions
+	paramIdx := 1
+	return parseWhereExpressionWithParams(where, &paramIdx)
+}
+
+// parseExpressionValue parses a value that could be a string literal, column, or other expression
+func parseExpressionValue(s string) Expression {
+	s = strings.TrimSpace(s)
+	
+	// Check for string literal
+	if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") {
+		return &ConstantExpr{Value: s[1 : len(s)-1]}
+	}
+	
+	// Try to parse as number
+	if num, err := parseNumber(s); err == nil {
+		return &ConstantExpr{Value: num}
+	}
+	
+	// Otherwise, treat as column reference
+	return parseColumnExpression(s)
 }
