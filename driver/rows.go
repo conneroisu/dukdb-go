@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/connerohnesorge/dukdb-go/internal/engine"
@@ -233,6 +234,37 @@ func convertToDriverValue(val any, colType storage.LogicalType) driver.Value {
 			return time.UnixMicro(intVal)
 		}
 	}
+	
+	// Special handling for date columns
+	if colType.ID == storage.TypeDate {
+		if intVal, ok := val.(int32); ok {
+			// Convert int32 days since Unix epoch to time.Time
+			return time.Unix(int64(intVal)*86400, 0).UTC()
+		}
+	}
+
+	// Special handling for time columns
+	if colType.ID == storage.TypeTime {
+		if intVal, ok := val.(int64); ok {
+			// Convert int64 microseconds since midnight to time.Time
+			// Use Unix epoch date (1970-01-01) + time offset
+			epochMidnight := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+			return epochMidnight.Add(time.Duration(intVal) * time.Microsecond)
+		}
+	}
+
+	// Special handling for decimal columns
+	if colType.ID == storage.TypeDecimal {
+		// If the value is stored as a string (common for DECIMAL types), convert to float64
+		if strVal, ok := val.(string); ok {
+			parsed, err := strconv.ParseFloat(strVal, 64)
+			if err != nil {
+				// If parsing fails, return the string as-is
+				return strVal
+			}
+			return parsed
+		}
+	}
 
 	// Special handling for complex types stored as strings
 	if strVal, ok := val.(string); ok {
@@ -244,30 +276,10 @@ func convertToDriverValue(val any, colType storage.LogicalType) driver.Value {
 				return strVal // Return as string if conversion fails
 			}
 			return uuid
-		case storage.TypeList:
-			// Convert JSON string back to List
-			list := &types.ListAny{}
-			err := list.UnmarshalJSON([]byte(strVal))
-			if err != nil {
-				return strVal // Return as string if conversion fails
-			}
-			return list
-		case storage.TypeStruct:
-			// Convert JSON string back to Struct
-			structVal := &types.Struct{}
-			err := structVal.UnmarshalJSON([]byte(strVal))
-			if err != nil {
-				return strVal // Return as string if conversion fails
-			}
-			return structVal
-		case storage.TypeMap:
-			// Convert JSON string back to Map
-			mapVal := &types.MapAny{}
-			err := mapVal.UnmarshalJSON([]byte(strVal))
-			if err != nil {
-				return strVal // Return as string if conversion fails
-			}
-			return mapVal
+		case storage.TypeList, storage.TypeStruct, storage.TypeMap:
+			// For complex types, return JSON strings for SQL compatibility
+			// This allows scanning into string variables which can then be parsed as JSON
+			return strVal
 		}
 	}
 
@@ -279,8 +291,29 @@ func convertToDriverValue(val any, colType storage.LogicalType) driver.Value {
 	case *types.Decimal:
 		// Return decimal as string for compatibility
 		return v.String()
+	case *types.ListAny:
+		// Convert List to JSON string for SQL compatibility
+		jsonBytes, err := v.MarshalJSON()
+		if err != nil {
+			return fmt.Sprintf("List[%d elements]", v.Len()) // Fallback
+		}
+		return string(jsonBytes)
+	case *types.Struct:
+		// Convert Struct to JSON string for SQL compatibility
+		jsonBytes, err := v.MarshalJSON()
+		if err != nil {
+			return "Struct{}" // Fallback
+		}
+		return string(jsonBytes)
+	case *types.MapAny:
+		// Convert Map to JSON string for SQL compatibility
+		jsonBytes, err := v.MarshalJSON()
+		if err != nil {
+			return "Map{}" // Fallback
+		}
+		return string(jsonBytes)
 	default:
-		// For complex types, return as-is
+		// For other types, return as-is
 		return v
 	}
 }

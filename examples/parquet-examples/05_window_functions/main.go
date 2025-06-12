@@ -48,7 +48,7 @@ func main() {
 		log.Fatal("Failed to setup database:", err)
 	}
 
-	fmt.Println("=== Stock Market Analytics ===\n")
+	fmt.Println("=== Stock Market Analytics ===")
 
 	// Analysis 1: Price movements
 	fmt.Println("1. Recent price movements:")

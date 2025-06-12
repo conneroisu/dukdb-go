@@ -115,6 +115,11 @@ type Vector struct {
 	validity  *ValidityMask
 }
 
+// GetLogicalType returns the logical type of the vector
+func (v *Vector) GetLogicalType() LogicalType {
+	return v.logicalType
+}
+
 // NewVector creates a new vector with the specified type and size
 func NewVector(logicalType LogicalType, size int) *Vector {
 	return &Vector{
@@ -129,7 +134,6 @@ func NewVector(logicalType LogicalType, size int) *Vector {
 // NewFlatVector creates a flat vector with allocated storage
 func NewFlatVector(logicalType LogicalType, size int) *Vector {
 	v := NewVector(logicalType, size)
-	
 	// Allocate data based on type
 	switch logicalType.ID {
 	case TypeBoolean:
@@ -172,6 +176,10 @@ func NewFlatVector(logicalType LogicalType, size int) *Vector {
 	case TypeTimestamp:
 		// For timestamp, store as int64 (microseconds since epoch)
 		data := make([]int64, size)
+		v.data = unsafe.Pointer(&data)
+	case TypeBlob:
+		// For BLOB, store as byte slice
+		data := make([][]byte, size)
 		v.data = unsafe.Pointer(&data)
 	case TypeUUID, TypeList, TypeStruct, TypeMap:
 		// For complex types, store as string (JSON or string representation)
@@ -234,6 +242,8 @@ func (v *Vector) getFlatValue(pos int) (interface{}, error) {
 		return (*(*[]int64)(v.data))[pos], nil
 	case TypeTimestamp:
 		return (*(*[]int64)(v.data))[pos], nil
+	case TypeBlob:
+		return (*(*[][]byte)(v.data))[pos], nil
 	case TypeUUID, TypeList, TypeStruct, TypeMap:
 		// Complex types are stored as strings, return the string value
 		return (*(*[]string)(v.data))[pos], nil
@@ -369,17 +379,34 @@ func (v *Vector) setFlatValue(pos int, value interface{}) error {
 			// Try to convert from int
 			if intVal, ok := value.(int); ok {
 				val = int32(intVal)
+			} else if timeVal, ok := value.(time.Time); ok {
+				// Convert time.Time to days since Unix epoch (DuckDB DATE format)
+				val = int32(timeVal.Unix() / 86400) // 86400 seconds per day
+			} else if strVal, ok := value.(string); ok {
+				// Parse date string (YYYY-MM-DD format)
+				parsedTime, err := time.Parse("2006-01-02", strVal)
+				if err != nil {
+					return fmt.Errorf("failed to parse date string '%s': %w", strVal, err)
+				}
+				val = int32(parsedTime.Unix() / 86400) // Convert to days since Unix epoch
 			} else {
-				return fmt.Errorf("expected int32 for date, got %T", value)
+				return fmt.Errorf("expected int32, time.Time or date string for date, got %T", value)
 			}
 		}
 		(*(*[]int32)(v.data))[pos] = val
 	case TypeTime:
-		val, ok := value.(int64)
-		if !ok {
-			return fmt.Errorf("expected int64 for time, got %T", value)
+		switch val := value.(type) {
+		case int64:
+			(*(*[]int64)(v.data))[pos] = val
+		case time.Time:
+			// Convert time.Time to microseconds since midnight
+			// For TIME, we only care about the time-of-day portion
+			midnight := time.Date(val.Year(), val.Month(), val.Day(), 0, 0, 0, 0, val.Location())
+			microsecondsSinceMidnight := val.Sub(midnight).Microseconds()
+			(*(*[]int64)(v.data))[pos] = microsecondsSinceMidnight
+		default:
+			return fmt.Errorf("expected int64 or time.Time for time, got %T", value)
 		}
-		(*(*[]int64)(v.data))[pos] = val
 	case TypeTimestamp:
 		switch val := value.(type) {
 		case int64:
@@ -389,6 +416,17 @@ func (v *Vector) setFlatValue(pos int, value interface{}) error {
 			(*(*[]int64)(v.data))[pos] = val.UnixMicro()
 		default:
 			return fmt.Errorf("expected int64 or time.Time for timestamp, got %T", value)
+		}
+	case TypeBlob:
+		// Accept []byte or string (hex/base64)
+		switch val := value.(type) {
+		case []byte:
+			(*(*[][]byte)(v.data))[pos] = val
+		case string:
+			// If it's a string, treat it as the raw bytes (could be encoded)
+			(*(*[][]byte)(v.data))[pos] = []byte(val)
+		default:
+			return fmt.Errorf("expected []byte or string for BLOB type, got %T", value)
 		}
 	case TypeUUID:
 		// Accept UUID object or string representation

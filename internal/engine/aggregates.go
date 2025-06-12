@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/connerohnesorge/dukdb-go/internal/storage"
 )
@@ -236,8 +237,9 @@ func (a *AggregateOperator) executeGroupedAggregate(ctx context.Context, input *
 				return nil, err
 			}
 			
+			
 			if err := output.SetValue(col, outRow, result); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to set aggregate result at col %d: result=%v (type=%T), error: %w", col, result, result, err)
 			}
 			col++
 		}
@@ -346,6 +348,13 @@ func (s *SumAggregate) Update(state AggregateState, value interface{}) error {
 		numVal = v
 	case int:
 		numVal = float64(v)
+	case string:
+		// Try to parse string as decimal/numeric value
+		parsed, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("SUM: cannot parse string '%s' as number: %w", v, err)
+		}
+		numVal = parsed
 	default:
 		return fmt.Errorf("SUM: cannot sum %T", value)
 	}
@@ -416,6 +425,13 @@ func (a *AvgAggregate) Update(state AggregateState, value interface{}) error {
 		numVal = float64(v)
 	case float64:
 		numVal = v
+	case string:
+		// Try to parse string as decimal/numeric value
+		parsed, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("AVG: cannot parse string '%s' as number: %w", v, err)
+		}
+		numVal = parsed
 	default:
 		return fmt.Errorf("AVG: cannot average %T", value)
 	}
@@ -481,11 +497,23 @@ func (m *MinAggregate) Finalize(state AggregateState) (interface{}, error) {
 	if !s.hasValue {
 		return nil, nil
 	}
+	
+	// Convert string decimals to float64 for consistency with other aggregates
+	if strVal, ok := s.min.(string); ok {
+		parsed, err := strconv.ParseFloat(strVal, 64)
+		if err == nil {
+			return parsed, nil // Successfully converted string to float64
+		}
+		// If parsing fails, return original string value
+	}
+	
 	return s.min, nil
 }
 
 func (m *MinAggregate) GetResultType() storage.LogicalType {
-	return m.inputType
+	// For consistency with SUM/AVG, always return Double for numeric aggregates
+	// We convert string decimals to float64 in Finalize, so return Double
+	return storage.LogicalType{ID: storage.TypeDouble}
 }
 
 func (s *minState) Reset() {
@@ -532,11 +560,23 @@ func (m *MaxAggregate) Finalize(state AggregateState) (interface{}, error) {
 	if !s.hasValue {
 		return nil, nil
 	}
+	
+	// Convert string decimals to float64 for consistency with other aggregates
+	if strVal, ok := s.max.(string); ok {
+		parsed, err := strconv.ParseFloat(strVal, 64)
+		if err == nil {
+			return parsed, nil // Successfully converted string to float64
+		}
+		// If parsing fails, return original string value
+	}
+	
 	return s.max, nil
 }
 
 func (m *MaxAggregate) GetResultType() storage.LogicalType {
-	return m.inputType
+	// For consistency with SUM/AVG, always return Double for numeric aggregates
+	// We convert string decimals to float64 in Finalize, so return Double
+	return storage.LogicalType{ID: storage.TypeDouble}
 }
 
 func (s *maxState) Reset() {

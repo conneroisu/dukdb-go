@@ -161,7 +161,7 @@ func TestSQLParser(t *testing.T) {
 		{"BEGIN", "BEGIN", false},
 		{"COMMIT", "COMMIT", false},
 		{"ROLLBACK", "ROLLBACK", false},
-		{"Unsupported", "DROP TABLE test", true},
+		{"DROP TABLE", "DROP TABLE test", false},
 	}
 
 	for _, tt := range tests {

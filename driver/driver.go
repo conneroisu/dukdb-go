@@ -29,15 +29,29 @@ func (d *Driver) Open(name string) (driver.Conn, error) {
 
 	// Get or create database
 	d.mu.Lock()
-	db, exists := d.databases[name]
-	if !exists {
-		var err error
+	var db *engine.Database
+	var err error
+	
+	// Always create a new instance for :memory: databases to ensure test isolation
+	if name == ":memory:" {
 		db, err = engine.NewDatabase(name)
 		if err != nil {
 			d.mu.Unlock()
 			return nil, fmt.Errorf("failed to open database: %w", err)
 		}
-		d.databases[name] = db
+	} else {
+		// Cache file-based databases
+		existing, exists := d.databases[name]
+		if !exists {
+			db, err = engine.NewDatabase(name)
+			if err != nil {
+				d.mu.Unlock()
+				return nil, fmt.Errorf("failed to open database: %w", err)
+			}
+			d.databases[name] = db
+		} else {
+			db = existing
+		}
 	}
 	d.mu.Unlock()
 

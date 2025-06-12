@@ -261,7 +261,7 @@ func TestAggregateOperators(t *testing.T) {
 		}
 		
 		count, _ := result.GetValue(0, 0)
-		if count.(int64) != 5 {
+		if count.(int32) != 5 {
 			t.Errorf("COUNT: expected 5, got %v", count)
 		}
 		

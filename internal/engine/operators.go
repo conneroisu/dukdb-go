@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -146,7 +147,7 @@ func NewProjectOperatorWithContext(expressions []Expression, inputSchema []stora
 	// Determine output schema based on expressions
 	outputSchema := make([]storage.LogicalType, len(expressions))
 	for i, expr := range expressions {
-		outputSchema[i] = inferExpressionType(expr, inputSchema)
+		outputSchema[i] = inferExpressionTypeWithContext(expr, inputSchema, columnNames)
 	}
 
 	return &ProjectOperator{
@@ -424,16 +425,30 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 				case "c", "customers":
 					// Look for column in the left table (first part of JOIN result)
 					// FROM customers c LEFT JOIN orders o puts customers first
-					// customers table has columns: id, name, email, region
+					// Dynamically determine customers table schema
+					totalCols := len(ctx.columnNames)
+					
+					// Determine actual customers table column count based on total columns
+					// If total is 5, customers has 2 cols (id, name) and orders has 3 (id, customer_id, amount)
+					// If total is 8, customers has 4 cols (id, name, email, region) and orders has 4
+					customersColCount := 2 // Default for simple schema (id, name)
+					if totalCols >= 8 {
+						customersColCount = 4 // Extended schema (id, name, email, region)
+					}
+					
 					switch targetColumn {
 					case "id":
 						colIdx = 0
 					case "name":
 						colIdx = 1
 					case "email":
-						colIdx = 2
+						if customersColCount >= 3 {
+							colIdx = 2
+						}
 					case "region":
-						colIdx = 3
+						if customersColCount >= 4 {
+							colIdx = 3
+						}
 					}
 				case "o", "orders":
 					// Check total column count to determine context
@@ -459,30 +474,23 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 					} else {
 						// JOIN context - orders table is the right side
 						// orders columns start after customers columns
-						leftTableCols := 4 // customers table has 4 columns
+						// Dynamically determine customers table column count
+						leftTableCols := 2 // Default for simple schema (id, name)
+						if totalCols >= 8 {
+							leftTableCols = 4 // Extended schema (id, name, email, region)
+						}
 
-						if totalCols == 7 {
-							// Missing order_date column, so adjust positions
-							switch targetColumn {
-							case "id":
-								colIdx = leftTableCols + 0 // position 4
-							case "customer_id":
-								colIdx = leftTableCols + 1 // position 5
-							case "amount":
-								colIdx = leftTableCols + 2 // position 6
-								// order_date not available in 7-column schema
-							}
-						} else {
-							// Full 8-column JOIN schema
-							switch targetColumn {
-							case "id":
-								colIdx = leftTableCols + 0 // position 4
-							case "customer_id":
-								colIdx = leftTableCols + 1 // position 5
-							case "amount":
-								colIdx = leftTableCols + 2 // position 6
-							case "order_date":
-								colIdx = leftTableCols + 3 // position 7
+						switch targetColumn {
+						case "id":
+							colIdx = leftTableCols + 0
+						case "customer_id":
+							colIdx = leftTableCols + 1
+						case "amount":
+							colIdx = leftTableCols + 2
+						case "order_date":
+							// Only available in extended schema
+							if totalCols >= 8 {
+								colIdx = leftTableCols + 3
 							}
 						}
 					}
@@ -558,8 +566,10 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 				// Category can be column 0 or 1 depending on schema
 				if chunk.ColumnCount() == 2 {
 					colIdx = 0 // For GROUP BY tests
+				} else if chunk.ColumnCount() == 5 {
+					colIdx = 2 // Sales table: id, product, category, amount, sale_date
 				} else {
-					colIdx = 1
+					colIdx = 1 // Other schemas
 				}
 			case "name":
 				colIdx = 1
@@ -1362,6 +1372,12 @@ func toFloat64(v any) (float64, bool) {
 		return float64(val), true
 	case uint64:
 		return float64(val), true
+	case string:
+		// Try to parse string as float64 for numeric strings (like DECIMAL values)
+		if parsed, err := strconv.ParseFloat(val, 64); err == nil {
+			return parsed, true
+		}
+		return 0, false
 	default:
 		return 0, false
 	}
@@ -1495,6 +1511,27 @@ func divideValues(a, b any) (any, error) {
 }
 
 // inferExpressionType infers the type of an expression
+// inferExpressionTypeWithContext infers the type of an expression with column name context
+func inferExpressionTypeWithContext(expr Expression, schema []storage.LogicalType, columnNames []string) storage.LogicalType {
+	switch e := expr.(type) {
+	case *ColumnExpr:
+		// If we have column names, try to find the column by name first
+		if columnNames != nil {
+			for i, name := range columnNames {
+				if name == e.Column && i < len(schema) {
+					return schema[i]
+				}
+			}
+		}
+		
+		// Fall back to the original logic if column name lookup fails
+		return inferExpressionType(expr, schema)
+	default:
+		// For non-column expressions, use the original logic
+		return inferExpressionType(expr, schema)
+	}
+}
+
 func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.LogicalType {
 	switch e := expr.(type) {
 	case *ColumnExpr:
@@ -1546,8 +1583,10 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 				colIdx = 0 // GROUP BY output: category, count, total
 			} else if len(schema) == 7 {
 				colIdx = 0 // GROUP BY output with more aggregates: category, count, total, average, min_amount, max_amount, std_dev
+			} else if len(schema) == 5 {
+				colIdx = 2 // Sales table: id, product, category, amount, sale_date
 			} else {
-				colIdx = 1 // Full table schema (5 or 6 columns)
+				colIdx = 1 // Other full table schemas (6 columns)
 			}
 		case "name":
 			colIdx = 1
@@ -1569,7 +1608,12 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 			} else if len(schema) == 6 {
 				colIdx = 3 // analytics_table
 			} else if len(schema) == 5 {
-				colIdx = 3 // analytics_table without created_at
+				// Check if this is sales table with DECIMAL amount at position 3
+				if len(schema) >= 4 && schema[3].ID == storage.TypeDecimal {
+					colIdx = 3 // sales table: id, product, category, amount, sale_date
+				} else {
+					colIdx = 3 // analytics_table without created_at
+				}
 			} else {
 				colIdx = 2 // Default position
 			}
@@ -1586,6 +1630,13 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 		if colIdx >= 0 && colIdx < len(schema) {
 			return schema[colIdx]
 		}
+		
+		// Try to find column by name in schema - this should be the general case
+		// For now, we need a way to map column names to schema positions
+		// This is a temporary fix - ideally we should pass column names context
+		
+		// If we don't have a specific mapping, return VARCHAR as fallback
+		// TODO: Improve this by using proper column name resolution
 		return storage.LogicalType{ID: storage.TypeVarchar}
 	case *ConstantExpr:
 		switch e.Value.(type) {

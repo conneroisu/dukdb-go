@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== DuckDB Performance Testing ===\n")
+	fmt.Println("=== DuckDB Performance Testing ===")
 
 	// Performance tests
 	fmt.Println("1. Connection Performance")

@@ -52,7 +52,7 @@ func main() {
 	}
 
 	// Since our parser doesn't support JOINs yet, we'll simulate joins manually
-	fmt.Println("=== Employee Directory ===\n")
+	fmt.Println("=== Employee Directory ===")
 	
 	// Simulate INNER JOIN employees e ON e.dept_id = d.id
 	fmt.Println("Employees with their departments:")

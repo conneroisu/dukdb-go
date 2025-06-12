@@ -566,6 +566,9 @@ func parseValueTupleWithIndex(tuple string, startParamIndex int) ([]Expression, 
 				// Fallback to constant
 				expressions = append(expressions, &ConstantExpr{Value: part})
 			}
+		} else if strings.ToUpper(part) == "NULL" {
+			// NULL value
+			expressions = append(expressions, &ConstantExpr{Value: nil})
 		} else {
 			// Try to parse as number
 			if num, err := parseNumber(part); err == nil {
@@ -887,8 +890,12 @@ func parseColumnDefinitions(colDefs string) []ColumnDefinition {
 				logicalType = storage.LogicalType{ID: storage.TypeDecimal, Width: 18, Scale: 3}
 			case upperColType == "DATE":
 				logicalType = storage.LogicalType{ID: storage.TypeDate}
+			case upperColType == "TIME":
+				logicalType = storage.LogicalType{ID: storage.TypeTime}
 			case upperColType == "TIMESTAMP":
 				logicalType = storage.LogicalType{ID: storage.TypeTimestamp}
+			case upperColType == "BLOB" || upperColType == "BYTEA":
+				logicalType = storage.LogicalType{ID: storage.TypeBlob}
 			case upperColType == "UUID":
 				logicalType = storage.LogicalType{ID: storage.TypeUUID}
 			case upperColType == "LIST" || strings.HasPrefix(upperColType, "LIST("):
@@ -2491,10 +2498,19 @@ func parseComplexExpressionValue(s string) Expression {
 	}
 	
 	// Check for function call (but not if it's actually a subquery)
-	if strings.Contains(s, "(") && strings.Contains(s, ")") && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(s[strings.Index(s, "(")+1:strings.LastIndex(s, ")")])), "SELECT") {
-		expr := parseFunctionExpression(s)
-		if expr != nil {
-			return expr
+	if strings.Contains(s, "(") && strings.Contains(s, ")") {
+		openIdx := strings.Index(s, "(")
+		closeIdx := strings.LastIndex(s, ")")
+		
+		// Ensure valid indices for slicing
+		if openIdx >= 0 && closeIdx > openIdx {
+			innerContent := strings.TrimSpace(s[openIdx+1:closeIdx])
+			if !strings.HasPrefix(strings.ToUpper(innerContent), "SELECT") {
+				expr := parseFunctionExpression(s)
+				if expr != nil {
+					return expr
+				}
+			}
 		}
 	}
 	

@@ -48,7 +48,7 @@ func main() {
 	}
 
 	// Run aggregation queries
-	fmt.Println("=== Transaction Analytics ===\n")
+	fmt.Println("=== Transaction Analytics ===")
 
 	// Query 1: Total amounts by type
 	fmt.Println("1. Total amounts by transaction type:")

@@ -68,12 +68,7 @@ func (e *Executor) executeScan(ctx context.Context, plan *ScanPlan) (*QueryResul
 	if err != nil {
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
-
-	// fmt.Printf("DEBUG Scan: table=%s, chunks=%d\n", plan.Table.name, len(chunks))
-	// for i, chunk := range chunks {
-	//	fmt.Printf("DEBUG Scan chunk %d: size=%d\n", i, chunk.Size())
-	// }
-
+	
 	// Create column metadata
 	columnDefs := plan.Table.GetColumns()
 	columns := make([]Column, len(columnDefs))
