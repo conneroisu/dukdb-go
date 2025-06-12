@@ -207,12 +207,14 @@ func (r *Rows) ColumnTypeScanType(index int) reflect.Type {
 		return reflect.TypeOf(time.Time{})
 	case storage.TypeInterval:
 		return reflect.TypeOf(types.Interval{})
+	case storage.TypeUUID:
+		return reflect.TypeOf(types.UUID{})
 	case storage.TypeList:
-		return reflect.TypeOf([]any{})
+		return reflect.TypeOf(&types.ListAny{})
 	case storage.TypeStruct:
-		return reflect.TypeOf(map[string]any{})
+		return reflect.TypeOf(&types.Struct{})
 	case storage.TypeMap:
-		return reflect.TypeOf(map[string]any{})
+		return reflect.TypeOf(&types.MapAny{})
 	default:
 		return reflect.TypeOf(new(any)).Elem()
 	}
@@ -229,6 +231,43 @@ func convertToDriverValue(val any, colType storage.LogicalType) driver.Value {
 		if intVal, ok := val.(int64); ok {
 			// Convert int64 microseconds to time.Time
 			return time.UnixMicro(intVal)
+		}
+	}
+
+	// Special handling for complex types stored as strings
+	if strVal, ok := val.(string); ok {
+		switch colType.ID {
+		case storage.TypeUUID:
+			// Convert string back to UUID
+			uuid, err := types.NewUUID(strVal)
+			if err != nil {
+				return strVal // Return as string if conversion fails
+			}
+			return uuid
+		case storage.TypeList:
+			// Convert JSON string back to List
+			list := &types.ListAny{}
+			err := list.UnmarshalJSON([]byte(strVal))
+			if err != nil {
+				return strVal // Return as string if conversion fails
+			}
+			return list
+		case storage.TypeStruct:
+			// Convert JSON string back to Struct
+			structVal := &types.Struct{}
+			err := structVal.UnmarshalJSON([]byte(strVal))
+			if err != nil {
+				return strVal // Return as string if conversion fails
+			}
+			return structVal
+		case storage.TypeMap:
+			// Convert JSON string back to Map
+			mapVal := &types.MapAny{}
+			err := mapVal.UnmarshalJSON([]byte(strVal))
+			if err != nil {
+				return strVal // Return as string if conversion fails
+			}
+			return mapVal
 		}
 	}
 

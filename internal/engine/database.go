@@ -14,7 +14,6 @@ type Database struct {
 	nextConnID   atomic.Uint64
 	catalog      *Catalog
 	closed       atomic.Bool
-	mu           sync.RWMutex
 }
 
 // NewDatabase creates a new database instance

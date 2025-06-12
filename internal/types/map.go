@@ -266,3 +266,49 @@ func (m *Map[K, V]) Scan(value interface{}) error {
 		return fmt.Errorf("cannot scan %T into Map[%T, %T]", value, *new(K), *new(V))
 	}
 }
+
+// MarshalJSON implements json.Marshaler
+func (m *Map[K, V]) MarshalJSON() ([]byte, error) {
+	if m == nil || m.entries == nil {
+		return []byte("null"), nil
+	}
+	
+	// For MapAny (interface{} keys), use ToGoMap to convert to string keys
+	// For other types, use entries directly
+	if isMapAny(m) {
+		return json.Marshal(m.ToGoMap())
+	}
+	return json.Marshal(m.entries)
+}
+
+// isMapAny checks if this is a MapAny (Map[interface{}, interface{}])
+func isMapAny[K comparable, V any](m *Map[K, V]) bool {
+	// Check if the entries map has interface{} keys by using reflection
+	if m == nil || m.entries == nil {
+		return false
+	}
+	
+	// Check the actual type of the entries map
+	entriesType := fmt.Sprintf("%T", m.entries)
+	return entriesType == "map[interface {}]interface {}"
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (m *Map[K, V]) UnmarshalJSON(data []byte) error {
+	if m == nil {
+		return fmt.Errorf("cannot unmarshal into nil Map")
+	}
+	var jsonMap map[K]V
+	if err := json.Unmarshal(data, &jsonMap); err != nil {
+		return err
+	}
+	
+	// Initialize new map
+	*m = *NewMap[K, V]()
+	
+	// Copy data maintaining key order
+	for k, v := range jsonMap {
+		m.Set(k, v)
+	}
+	return nil
+}

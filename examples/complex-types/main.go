@@ -17,7 +17,7 @@ func main() {
 	}
 	defer db.Close()
 
-	fmt.Println("=== DuckDB Complex Types Example ===\n")
+	fmt.Println("=== DuckDB Complex Types Example ===")
 
 	// Example 1: UUID Type
 	fmt.Println("1. UUID Type Example")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"testing"
 
 	_ "github.com/connerohnesorge/dukdb-go"
@@ -30,10 +31,16 @@ func TestUUIDOperations(t *testing.T) {
 
 	t.Run("InsertUUID", func(t *testing.T) {
 		// Create UUIDs
-		uuid1 := types.NewUUID()
-		uuid2 := types.NewUUID()
+		uuid1, err := types.NewUUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+		if err != nil {
+			t.Fatalf("Failed to create UUID1: %v", err)
+		}
+		uuid2, err := types.NewUUID("6ba7b811-9dad-11d1-80b4-00c04fd430c8")
+		if err != nil {
+			t.Fatalf("Failed to create UUID2: %v", err)
+		}
 
-		_, err := db.Exec("INSERT INTO users VALUES (?, ?, ?)", uuid1, "Alice", "alice@example.com")
+		_, err = db.Exec("INSERT INTO users VALUES (?, ?, ?)", uuid1, "Alice", "alice@example.com")
 		if err != nil {
 			t.Errorf("Failed to insert UUID: %v", err)
 		}
@@ -63,9 +70,9 @@ func TestUUIDOperations(t *testing.T) {
 				continue
 			}
 
-			// Verify UUID is valid
-			if !id.IsValid() {
-				t.Errorf("Invalid UUID: %s", id.String())
+			// Verify UUID is not zero
+			if id.IsZero() {
+				t.Errorf("Zero UUID: %s", id.String())
 			}
 
 			count++
@@ -144,7 +151,7 @@ func TestListOperations(t *testing.T) {
 		electronicsProducts := 0
 		for rows.Next() {
 			var name string
-			var tags types.List
+			var tags types.ListAny
 			var tagCount int
 			var firstTag string
 
@@ -375,12 +382,12 @@ func TestMapOperations(t *testing.T) {
 		users := make(map[string]struct {
 			theme   string
 			hasBeta bool
-			prefs   types.Map
+			prefs   types.MapAny
 		})
 
 		for rows.Next() {
 			var username string
-			var preferences types.Map
+			var preferences types.MapAny
 			var theme string
 			var hasBeta bool
 
@@ -393,7 +400,7 @@ func TestMapOperations(t *testing.T) {
 			users[username] = struct {
 				theme   string
 				hasBeta bool
-				prefs   types.Map
+				prefs   types.MapAny
 			}{theme, hasBeta, preferences}
 		}
 
@@ -440,7 +447,7 @@ func TestMapOperations(t *testing.T) {
 		for rows.Next() {
 			var username string
 			var prefCount int
-			var prefKeys types.List
+			var prefKeys types.ListAny
 
 			err := rows.Scan(&username, &prefCount, &prefKeys)
 			if err != nil {
@@ -493,9 +500,12 @@ func TestNestedComplexTypes(t *testing.T) {
 	}
 
 	t.Run("InsertNestedData", func(t *testing.T) {
-		orderID := types.NewUUID()
+		orderID, err := types.NewUUID("6ba7b812-9dad-11d1-80b4-00c04fd430c8")
+		if err != nil {
+			t.Fatalf("Failed to create orderID: %v", err)
+		}
 
-		_, err := db.Exec(`
+		_, err = db.Exec(`
 			INSERT INTO orders VALUES (
 				?,
 				{
@@ -550,8 +560,8 @@ func TestNestedComplexTypes(t *testing.T) {
 				continue
 			}
 
-			if !orderID.IsValid() {
-				t.Errorf("Invalid order UUID")
+			if orderID.IsZero() {
+				t.Errorf("Zero order UUID")
 			}
 
 			if customerName != "John Doe" {
@@ -604,8 +614,12 @@ func BenchmarkComplexTypes(b *testing.B) {
 
 	b.Run("UUIDOperations", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			uuid := types.NewUUID()
-			_, err := db.Exec("INSERT INTO complex_bench VALUES (?, {'values': [1,2,3], 'metadata': MAP(['key'], ['value'])})", uuid)
+			uuid, err := types.NewUUID(fmt.Sprintf("6ba7b81%d-9dad-11d1-80b4-00c04fd430c8", i%10))
+			if err != nil {
+				b.Errorf("Failed to create UUID: %v", err)
+				continue
+			}
+			_, err = db.Exec("INSERT INTO complex_bench VALUES (?, {'values': [1,2,3], 'metadata': MAP(['key'], ['value'])})", uuid)
 			if err != nil {
 				b.Errorf("Failed to insert UUID: %v", err)
 			}
@@ -620,8 +634,8 @@ func BenchmarkComplexTypes(b *testing.B) {
 			}
 			for rows.Next() {
 				var id types.UUID
-				var values types.List
-				var metadata types.Map
+				var values types.ListAny
+				var metadata types.MapAny
 				rows.Scan(&id, &values, &metadata)
 			}
 			rows.Close()

@@ -452,7 +452,7 @@ func createAggregateExpr(funcExpr *FunctionExpr) (AggregateExpr, error) {
 		// Functions like COUNT() or COUNT(*) - input type doesn't matter
 		inputType = storage.LogicalType{ID: storage.TypeInteger}
 	} else if len(funcExpr.Args) == 1 {
-		// Functions like SUM(column) - infer type from column
+		// Functions like SUM(column) or SUM(function(...)) - infer type from argument
 		if colExpr, ok := funcExpr.Args[0].(*ColumnExpr); ok {
 			// For common columns, infer the type
 			switch colExpr.Column {
@@ -466,8 +466,21 @@ func createAggregateExpr(funcExpr *FunctionExpr) (AggregateExpr, error) {
 				// Default to double for numeric aggregates
 				inputType = storage.LogicalType{ID: storage.TypeDouble}
 			}
+		} else if nestedFunc, ok := funcExpr.Args[0].(*FunctionExpr); ok {
+			// Handle nested function expressions like SUM(array_length(tags))
+			switch nestedFunc.Name {
+			case "ARRAY_LENGTH", "LIST_LENGTH", "CARDINALITY":
+				// These functions return integers
+				inputType = storage.LogicalType{ID: storage.TypeInteger}
+			case "ELEMENT_AT":
+				// Element access can return various types, default to double
+				inputType = storage.LogicalType{ID: storage.TypeDouble}
+			default:
+				// Default type for other functions
+				inputType = storage.LogicalType{ID: storage.TypeDouble}
+			}
 		} else {
-			// Default type
+			// Default type for other expression types
 			inputType = storage.LogicalType{ID: storage.TypeInteger}
 		}
 	} else {
@@ -669,16 +682,3 @@ func (p *Planner) planUnion(stmt *UnionStatement) (Plan, error) {
 	return plan, nil
 }
 
-// planSubquery creates a plan for a subquery expression
-func (p *Planner) planSubquery(subqueryExpr *SubqueryExpr) (Plan, error) {
-	// Plan the subquery statement
-	subqueryPlan, err := p.CreatePlan(subqueryExpr.Subquery)
-	if err != nil {
-		return nil, fmt.Errorf("failed to plan subquery: %w", err)
-	}
-	
-	return &SubqueryPlan{
-		Plan:         subqueryPlan,
-		SubqueryType: subqueryExpr.Type,
-	}, nil
-}

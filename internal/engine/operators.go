@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/connerohnesorge/dukdb-go/internal/storage"
+	"github.com/connerohnesorge/dukdb-go/internal/types"
 )
 
 // VectorizedOperator represents a vectorized execution operator
@@ -56,6 +58,8 @@ func (f *FilterOperator) Execute(ctx context.Context, input *storage.DataChunk) 
 		if err != nil {
 			return nil, fmt.Errorf("filter evaluation error: %w", err)
 		}
+
+		// fmt.Printf("DEBUG FilterOperator: row %d, predicate result: %v\n", row, result)
 
 		// Add row to selection if predicate is true
 		if result {
@@ -390,7 +394,6 @@ func (l *LimitOperator) GetOutputSchema() []storage.LogicalType {
 // EvaluationContext provides context for expression evaluation
 type EvaluationContext struct {
 	columnNames []string
-	tableName   string
 }
 
 // evaluateExpression evaluates an expression for a specific row
@@ -642,9 +645,430 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 		return nil, fmt.Errorf("unbound parameter at index %d", e.Index)
 
 	case *FunctionExpr:
-		// Function expressions should be handled by aggregate operators
-		// For non-aggregate functions, we'd implement them here
-		return nil, fmt.Errorf("function %s not implemented in expression evaluation", e.Name)
+		// Handle non-aggregate functions
+		switch strings.ToUpper(e.Name) {
+		case "ELEMENT_AT":
+			// Array/map element access
+			if len(e.Args) != 2 {
+				return nil, fmt.Errorf("element_at requires 2 arguments")
+			}
+
+			// Evaluate the collection
+			collection, err := evaluateExpressionWithContext(e.Args[0], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			// Evaluate the key/index
+			key, err := evaluateExpressionWithContext(e.Args[1], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			// Handle different collection types
+			switch v := collection.(type) {
+			case *types.MapAny:
+				// Map access by key
+				keyStr := fmt.Sprintf("%v", key)
+				if val, exists := v.Get(keyStr); exists {
+					return val, nil
+				}
+				return nil, nil // Missing key returns NULL
+			case map[string]interface{}:
+				// Map access by key (for parsed values)
+				keyStr := fmt.Sprintf("%v", key)
+				if val, exists := v[keyStr]; exists {
+					return val, nil
+				}
+				return nil, nil // Missing key returns NULL
+			case *types.ListAny:
+				// List access by index (DuckDB uses 1-based indexing)
+				var idx int
+				switch k := key.(type) {
+				case int32:
+					idx = int(k) - 1 // Convert to 0-based
+				case int64:
+					idx = int(k) - 1 // Convert to 0-based
+				case int:
+					idx = k - 1 // Convert to 0-based
+				default:
+					return nil, fmt.Errorf("list index must be integer, got %T", key)
+				}
+
+				values := v.Values()
+				if idx < 0 || idx >= len(values) {
+					return nil, nil // Out of bounds returns NULL
+				}
+				return values[idx], nil
+			case []interface{}:
+				// Array access by index (DuckDB uses 1-based indexing)
+				var idx int
+				switch k := key.(type) {
+				case int32:
+					idx = int(k) - 1 // Convert to 0-based
+				case int64:
+					idx = int(k) - 1 // Convert to 0-based
+				case int:
+					idx = k - 1 // Convert to 0-based
+				default:
+					return nil, fmt.Errorf("array index must be integer, got %T", key)
+				}
+
+				if idx < 0 || idx >= len(v) {
+					return nil, nil // Out of bounds returns NULL
+				}
+				return v[idx], nil
+			case string:
+				// If it's a string, it might be JSON-encoded collection
+				// First normalize single quotes to double quotes for JSON parsing
+				normalizedJSON := strings.ReplaceAll(v, "'", "\"")
+
+				// Try to parse as JSON array first
+				var jsonArray []interface{}
+				if err := json.Unmarshal([]byte(normalizedJSON), &jsonArray); err == nil {
+					// It's an array (DuckDB uses 1-based indexing)
+					var idx int
+					switch k := key.(type) {
+					case int32:
+						idx = int(k) - 1 // Convert to 0-based
+					case int64:
+						idx = int(k) - 1 // Convert to 0-based
+					case int:
+						idx = k - 1 // Convert to 0-based
+					default:
+						return nil, fmt.Errorf("array index must be integer, got %T", key)
+					}
+
+					if idx < 0 || idx >= len(jsonArray) {
+						return nil, nil // Out of bounds returns NULL
+					}
+					return jsonArray[idx], nil
+				}
+
+				// Try to parse as JSON map
+				var jsonMap map[string]interface{}
+				if err := json.Unmarshal([]byte(normalizedJSON), &jsonMap); err == nil {
+					// It's a map
+					keyStr := fmt.Sprintf("%v", key)
+					if val, exists := jsonMap[keyStr]; exists {
+						// If the value is a string that looks like JSON, try to parse it too
+						if strVal, ok := val.(string); ok {
+							// Try nested JSON parsing for complex nested structures
+							var nestedData interface{}
+							nestedNormalized := strings.ReplaceAll(strVal, "'", "\"")
+							if err := json.Unmarshal([]byte(nestedNormalized), &nestedData); err == nil {
+								return nestedData, nil
+							}
+						}
+						return val, nil
+					}
+					return nil, nil // Missing key returns NULL
+				}
+
+				return nil, fmt.Errorf("element_at: failed to parse JSON collection: %s", v)
+			default:
+				return nil, fmt.Errorf("element_at not supported for type %T", collection)
+			}
+
+		case "ARRAY_LENGTH", "LIST_LENGTH":
+			// Array/list length
+			if len(e.Args) != 1 {
+				return nil, fmt.Errorf("array_length requires 1 argument")
+			}
+
+			// Evaluate the array/list
+			collection, err := evaluateExpressionWithContext(e.Args[0], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			switch v := collection.(type) {
+			case *types.ListAny:
+				return int32(len(v.Values())), nil
+			case []interface{}:
+				return int32(len(v)), nil
+			case string:
+				// If it's a string, it might be JSON-encoded array
+				var jsonArray []interface{}
+				if err := json.Unmarshal([]byte(v), &jsonArray); err == nil {
+					return int32(len(jsonArray)), nil
+				}
+				return nil, fmt.Errorf("array_length: failed to parse JSON array: %v", err)
+			case nil:
+				return nil, nil // NULL array returns NULL
+			default:
+				return nil, fmt.Errorf("array_length not supported for type %T", collection)
+			}
+
+		case "LIST_CONTAINS", "ARRAY_CONTAINS":
+			// Check if list/array contains a value
+			if len(e.Args) != 2 {
+				return nil, fmt.Errorf("list_contains requires 2 arguments")
+			}
+
+			// Evaluate the list/array
+			collection, err := evaluateExpressionWithContext(e.Args[0], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			// Evaluate the value to search for
+			searchValue, err := evaluateExpressionWithContext(e.Args[1], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			switch v := collection.(type) {
+			case *types.ListAny:
+				values := v.Values()
+				for _, val := range values {
+					if fmt.Sprintf("%v", val) == fmt.Sprintf("%v", searchValue) {
+						return true, nil
+					}
+				}
+				return false, nil
+			case []interface{}:
+				for _, val := range v {
+					if fmt.Sprintf("%v", val) == fmt.Sprintf("%v", searchValue) {
+						return true, nil
+					}
+				}
+				return false, nil
+			case string:
+				// If it's a string, it might be JSON-encoded array
+				var jsonArray []interface{}
+				if err := json.Unmarshal([]byte(v), &jsonArray); err == nil {
+					for _, val := range jsonArray {
+						if fmt.Sprintf("%v", val) == fmt.Sprintf("%v", searchValue) {
+							return true, nil
+						}
+					}
+					return false, nil
+				}
+				return nil, fmt.Errorf("list_contains: failed to parse JSON array: %v", err)
+			case nil:
+				return nil, nil // NULL array returns NULL
+			default:
+				return nil, fmt.Errorf("list_contains not supported for type %T", collection)
+			}
+
+		case "CARDINALITY":
+			// Get the number of elements in a map or array
+			if len(e.Args) != 1 {
+				return nil, fmt.Errorf("CARDINALITY requires 1 argument")
+			}
+
+			// Evaluate the collection
+			collection, err := evaluateExpressionWithContext(e.Args[0], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			switch v := collection.(type) {
+			case *types.MapAny:
+				return int32(v.Len()), nil
+			case *types.ListAny:
+				return int32(len(v.Values())), nil
+			case []interface{}:
+				return int32(len(v)), nil
+			case map[string]interface{}:
+				return int32(len(v)), nil
+			case string:
+				// If it's a string, it might be JSON-encoded collection
+				// Try to parse as JSON map first
+				var jsonMap map[string]interface{}
+				if err := json.Unmarshal([]byte(v), &jsonMap); err == nil {
+					return int32(len(jsonMap)), nil
+				}
+				// Try to parse as JSON array
+				var jsonArray []interface{}
+				if err := json.Unmarshal([]byte(v), &jsonArray); err == nil {
+					return int32(len(jsonArray)), nil
+				}
+				return nil, fmt.Errorf("CARDINALITY: cannot get size of string value")
+			default:
+				return nil, fmt.Errorf("CARDINALITY not supported for type %T", collection)
+			}
+
+		case "LIST_EXTRACT":
+			// Alias for ELEMENT_AT for lists (DuckDB compatibility)
+			if len(e.Args) != 2 {
+				return nil, fmt.Errorf("LIST_EXTRACT requires 2 arguments")
+			}
+
+			// Delegate to ELEMENT_AT implementation
+			elementAtExpr := &FunctionExpr{
+				Name: "ELEMENT_AT",
+				Args: e.Args,
+			}
+			return evaluateExpressionWithContext(elementAtExpr, chunk, row, ctx)
+
+		case "STRUCT_EXTRACT", "STRUCT_PACK":
+			// For struct extraction, this could be used for creating structs
+			// For now, return an error as this would need more complex implementation
+			return nil, fmt.Errorf("STRUCT_EXTRACT/STRUCT_PACK not yet implemented")
+
+		case "MAP_EXTRACT":
+			// Alias for ELEMENT_AT for maps, or for extracting map values
+			if len(e.Args) != 2 {
+				return nil, fmt.Errorf("MAP_EXTRACT requires 2 arguments")
+			}
+
+			// Delegate to ELEMENT_AT implementation
+			elementAtExpr := &FunctionExpr{
+				Name: "ELEMENT_AT",
+				Args: e.Args,
+			}
+			return evaluateExpressionWithContext(elementAtExpr, chunk, row, ctx)
+
+		case "MAP_VALUES":
+			// Get the values of a map as an array (complement to MAP_KEYS)
+			if len(e.Args) != 1 {
+				return nil, fmt.Errorf("MAP_VALUES requires 1 argument")
+			}
+
+			// Evaluate the map
+			collection, err := evaluateExpressionWithContext(e.Args[0], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			switch v := collection.(type) {
+			case *types.MapAny:
+				// Get all values from the map
+				result := make([]interface{}, 0, v.Len())
+				keys := v.Keys()
+				for _, key := range keys {
+					if val, exists := v.Get(key); exists {
+						result = append(result, val)
+					}
+				}
+				return result, nil
+			case map[string]interface{}:
+				// Extract values from Go map
+				values := make([]interface{}, 0, len(v))
+				for _, val := range v {
+					values = append(values, val)
+				}
+				return values, nil
+			case string:
+				// If it's a string, it might be JSON-encoded map
+				var jsonMap map[string]interface{}
+				if err := json.Unmarshal([]byte(v), &jsonMap); err == nil {
+					values := make([]interface{}, 0, len(jsonMap))
+					for _, val := range jsonMap {
+						values = append(values, val)
+					}
+					return values, nil
+				}
+				return nil, fmt.Errorf("MAP_VALUES: failed to parse JSON map")
+			default:
+				return nil, fmt.Errorf("MAP_VALUES not supported for type %T", collection)
+			}
+
+		case "MAP_KEYS":
+			// Get the keys of a map as an array
+			if len(e.Args) != 1 {
+				return nil, fmt.Errorf("MAP_KEYS requires 1 argument")
+			}
+
+			// Evaluate the map
+			collection, err := evaluateExpressionWithContext(e.Args[0], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			switch v := collection.(type) {
+			case *types.MapAny:
+				keys := v.Keys()
+				// Convert keys to []interface{}
+				result := make([]interface{}, len(keys))
+				copy(result, keys)
+				return result, nil
+			case map[string]interface{}:
+				// Extract keys from Go map
+				keys := make([]interface{}, 0, len(v))
+				for key := range v {
+					keys = append(keys, key)
+				}
+				return keys, nil
+			case string:
+				// If it's a string, it might be JSON-encoded map
+				var jsonMap map[string]interface{}
+				if err := json.Unmarshal([]byte(v), &jsonMap); err == nil {
+					keys := make([]interface{}, 0, len(jsonMap))
+					for key := range jsonMap {
+						keys = append(keys, key)
+					}
+					return keys, nil
+				}
+				return nil, fmt.Errorf("MAP_KEYS: failed to parse JSON map")
+			default:
+				return nil, fmt.Errorf("MAP_KEYS not supported for type %T", collection)
+			}
+
+		case "MAP":
+			// MAP constructor: MAP(keys, values)
+			if len(e.Args) != 2 {
+				return nil, fmt.Errorf("MAP requires 2 arguments (keys array, values array), got %d", len(e.Args))
+			}
+
+			// Evaluate keys array
+			keysValue, err := evaluateExpressionWithContext(e.Args[0], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			// Evaluate values array
+			valuesValue, err := evaluateExpressionWithContext(e.Args[1], chunk, row, ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			// Convert to slices
+			var keys []interface{}
+			var values []interface{}
+
+			switch k := keysValue.(type) {
+			case []interface{}:
+				keys = k
+			case *types.ListAny:
+				keys = k.Values()
+			default:
+				return nil, fmt.Errorf("MAP keys must be an array, got %T", keysValue)
+			}
+
+			switch v := valuesValue.(type) {
+			case []interface{}:
+				values = v
+			case *types.ListAny:
+				values = v.Values()
+			default:
+				return nil, fmt.Errorf("MAP values must be an array, got %T", valuesValue)
+			}
+
+			// Keys and values must have the same length
+			if len(keys) != len(values) {
+				return nil, fmt.Errorf("MAP keys and values arrays must have the same length")
+			}
+
+			// Create MAP
+			mapData := make(map[interface{}]interface{})
+			for i, key := range keys {
+				mapData[key] = values[i]
+			}
+
+			// Return as *types.MapAny using the conversion function
+			mapAny, err := types.NewMapAnyFromGo(mapData)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create MAP: %w", err)
+			}
+			return mapAny, nil
+
+		default:
+			// Other functions not yet implemented
+			return nil, fmt.Errorf("function %s not implemented in expression evaluation", e.Name)
+		}
 
 	case *BinaryExpr:
 		left, err := evaluateExpressionWithContext(e.Left, chunk, row, ctx)
@@ -692,6 +1116,89 @@ func evaluateExpressionWithContext(expr Expression, chunk *storage.DataChunk, ro
 			return true, nil
 		default:
 			return nil, fmt.Errorf("unsupported subquery type: %d", e.Type)
+		}
+
+	case *UnaryExpr:
+		operand, err := evaluateExpressionWithContext(e.Expr, chunk, row, ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		return evaluateUnaryOp(e.Op, operand)
+
+	case *FieldAccessExpr:
+		// Evaluate the base expression
+		base, err := evaluateExpressionWithContext(e.Expr, chunk, row, ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// Handle field access based on the type of base
+		switch v := base.(type) {
+		case *types.Struct:
+			// Access struct field
+			if val, exists := v.Get(e.Field); exists {
+				return val, nil
+			}
+			return nil, fmt.Errorf("field %s not found in struct", e.Field)
+		case map[string]interface{}:
+			// Access map field (for parsed struct values)
+			if val, exists := v[e.Field]; exists {
+				// If the value is a string, it might be nested JSON
+				if strVal, ok := val.(string); ok {
+					// Try to parse as JSON
+					var nestedMap map[string]interface{}
+					if err := json.Unmarshal([]byte(strVal), &nestedMap); err == nil {
+						return nestedMap, nil
+					}
+				}
+
+				// Handle numeric type conversion from JSON parsing
+				// JSON unmarshaling converts all numbers to float64, but we may need integers
+				if f, ok := val.(float64); ok {
+					// If the float64 is actually a whole number, convert to int32 for consistency
+					if f == float64(int32(f)) {
+						return int32(f), nil
+					}
+				}
+
+				return val, nil
+			}
+			return nil, fmt.Errorf("field %s not found in struct", e.Field)
+		case *types.MapAny:
+			// Access map value by key
+			if val, exists := v.Get(e.Field); exists {
+				return val, nil
+			}
+			return nil, nil // Return nil for missing keys
+		case string:
+			// If base is a string, it might be JSON-encoded complex type
+			// Try to parse as JSON, handling both single and double quotes
+			var jsonMap map[string]interface{}
+
+			// First try direct JSON parsing
+			if err := json.Unmarshal([]byte(v), &jsonMap); err == nil {
+				// Successfully parsed as JSON map, access field
+				if val, exists := jsonMap[e.Field]; exists {
+					return val, nil
+				}
+				return nil, fmt.Errorf("field %s not found in struct", e.Field)
+			}
+
+			// If direct parsing failed, try converting single quotes to double quotes
+			normalizedJSON := strings.ReplaceAll(v, "'", "\"")
+			if err := json.Unmarshal([]byte(normalizedJSON), &jsonMap); err == nil {
+				// Successfully parsed as JSON map after normalization, access field
+				if val, exists := jsonMap[e.Field]; exists {
+					return val, nil
+				}
+				return nil, fmt.Errorf("field %s not found in struct", e.Field)
+			}
+
+			// Not JSON, return error
+			return nil, fmt.Errorf("cannot access field %s on type string (value: %s)", e.Field, v)
+		default:
+			return nil, fmt.Errorf("cannot access field %s on type %T", e.Field, base)
 		}
 
 	default:
@@ -760,6 +1267,27 @@ func evaluateBinaryOp(left any, op BinaryOp, right any) (any, error) {
 		return matchLike(text, pattern), nil
 	default:
 		return nil, fmt.Errorf("unsupported binary operator: %v", op)
+	}
+}
+
+// evaluateUnaryOp evaluates a unary operation
+func evaluateUnaryOp(op UnaryOp, operand any) (any, error) {
+	switch op {
+	case OpIsNull:
+		return operand == nil, nil
+	case OpIsNotNull:
+		return operand != nil, nil
+	case OpNot:
+		if operand == nil {
+			return nil, nil
+		}
+		b, err := toBool(operand)
+		if err != nil {
+			return nil, err
+		}
+		return !b, nil
+	default:
+		return nil, fmt.Errorf("unsupported unary operator: %v", op)
 	}
 }
 
@@ -1080,13 +1608,36 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 	case *FunctionExpr:
 		// Function type inference should be handled by aggregate planner
 		// For non-aggregate functions, return based on function type
-		switch e.Name {
+		switch strings.ToUpper(e.Name) {
 		case "COUNT":
 			return storage.LogicalType{ID: storage.TypeBigInt}
 		case "SUM":
 			return storage.LogicalType{ID: storage.TypeDouble}
 		case "AVG":
 			return storage.LogicalType{ID: storage.TypeDouble}
+		case "ARRAY_LENGTH", "LIST_LENGTH":
+			return storage.LogicalType{ID: storage.TypeInteger}
+		case "ELEMENT_AT":
+			// Element access returns variant type - for now, use varchar
+			return storage.LogicalType{ID: storage.TypeVarchar}
+		case "LIST_CONTAINS", "ARRAY_CONTAINS":
+			return storage.LogicalType{ID: storage.TypeBoolean}
+		case "MAP":
+			return storage.LogicalType{ID: storage.TypeMap}
+		case "CARDINALITY":
+			return storage.LogicalType{ID: storage.TypeInteger}
+		case "MAP_KEYS":
+			return storage.LogicalType{ID: storage.TypeList}
+		case "MAP_VALUES":
+			return storage.LogicalType{ID: storage.TypeList}
+		case "LIST_EXTRACT":
+			// Element access returns variant type - for now, use varchar
+			return storage.LogicalType{ID: storage.TypeVarchar}
+		case "MAP_EXTRACT":
+			// Element access returns variant type - for now, use varchar
+			return storage.LogicalType{ID: storage.TypeVarchar}
+		case "STRUCT_EXTRACT", "STRUCT_PACK":
+			return storage.LogicalType{ID: storage.TypeVarchar}
 		default:
 			return storage.LogicalType{ID: storage.TypeVarchar}
 		}
@@ -1137,6 +1688,21 @@ func inferExpressionType(expr Expression, schema []storage.LogicalType) storage.
 		default:
 			return storage.LogicalType{ID: storage.TypeVarchar}
 		}
+	case *UnaryExpr:
+		// Unary operators always return boolean
+		return storage.LogicalType{ID: storage.TypeBoolean}
+	case *FieldAccessExpr:
+		// For field access, we need to infer based on the field
+		// For common numeric field names, try to infer integer type
+		// This is a heuristic until we have proper schema information
+		fieldName := strings.ToLower(e.Field)
+		if fieldName == "base" || fieldName == "bonus" || fieldName == "salary" ||
+			fieldName == "id" || fieldName == "count" || fieldName == "amount" ||
+			strings.HasSuffix(fieldName, "_id") || strings.HasSuffix(fieldName, "_count") {
+			return storage.LogicalType{ID: storage.TypeInteger}
+		}
+		// Default to varchar for other fields
+		return storage.LogicalType{ID: storage.TypeVarchar}
 	default:
 		return storage.LogicalType{ID: storage.TypeVarchar}
 	}

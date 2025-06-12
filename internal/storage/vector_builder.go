@@ -146,6 +146,15 @@ func convertValueForStorage(value interface{}, logicalType LogicalType) interfac
 	}
 	
 	switch logicalType.ID {
+	case TypeUUID:
+		// Convert UUID type to string for storage
+		if uuid, ok := value.(*types.UUID); ok {
+			return uuid.String()
+		}
+		// Handle UUID passed as string
+		if uuidStr, ok := value.(string); ok {
+			return uuidStr
+		}
 	case TypeDecimal:
 		// Convert Decimal type to string for storage
 		if dec, ok := value.(*types.Decimal); ok {
@@ -156,6 +165,45 @@ func convertValueForStorage(value interface{}, logicalType LogicalType) interfac
 		if t, ok := value.(time.Time); ok {
 			// For now, store as ISO string
 			return t.Format(time.RFC3339Nano)
+		}
+	case TypeList:
+		// Convert List type to JSON for storage
+		if list, ok := value.(*types.ListAny); ok {
+			jsonBytes, err := list.MarshalJSON()
+			if err != nil {
+				return nil
+			}
+			return string(jsonBytes)
+		}
+		// Handle []interface{} from parser
+		if slice, ok := value.([]interface{}); ok {
+			list, err := types.NewListAny(slice)
+			if err != nil {
+				return nil
+			}
+			jsonBytes, err := list.MarshalJSON()
+			if err != nil {
+				return nil
+			}
+			return string(jsonBytes)
+		}
+	case TypeStruct:
+		// Convert Struct type to JSON for storage
+		if structVal, ok := value.(*types.Struct); ok {
+			jsonBytes, err := structVal.MarshalJSON()
+			if err != nil {
+				return nil
+			}
+			return string(jsonBytes)
+		}
+	case TypeMap:
+		// Convert Map type to JSON for storage
+		if mapVal, ok := value.(*types.MapAny); ok {
+			jsonBytes, err := mapVal.MarshalJSON()
+			if err != nil {
+				return nil
+			}
+			return string(jsonBytes)
 		}
 	}
 	

@@ -187,6 +187,7 @@ const (
 	ExprCase
 	ExprSubquery
 	ExprParameter
+	ExprFieldAccess
 )
 
 // ColumnExpr represents a column reference
@@ -265,6 +266,31 @@ const (
 	OpLike
 	OpBetween
 )
+
+// UnaryExpr represents a unary expression
+type UnaryExpr struct {
+	Op   UnaryOp
+	Expr Expression
+}
+
+func (e *UnaryExpr) ExprType() ExpressionType { return ExprUnary }
+
+// UnaryOp represents a unary operator
+type UnaryOp int
+
+const (
+	OpIsNull UnaryOp = iota
+	OpIsNotNull
+	OpNot
+)
+
+// FieldAccessExpr represents accessing a field of a struct or array element
+type FieldAccessExpr struct {
+	Expr  Expression // The struct/array expression
+	Field string     // The field name or array index
+}
+
+func (e *FieldAccessExpr) ExprType() ExpressionType { return ExprFieldAccess }
 
 // TableRef represents a table reference
 type TableRef struct {
@@ -498,11 +524,6 @@ func splitValueTuples(valuesPart string) []string {
 	return tuples
 }
 
-// parseValueTuple parses a single value tuple like (1, 'Hello')
-func parseValueTuple(tuple string) ([]Expression, error) {
-	expressions, _, err := parseValueTupleWithIndex(tuple, 1)
-	return expressions, err
-}
 
 // parseValueTupleWithIndex parses a value tuple tracking parameter indices
 func parseValueTupleWithIndex(tuple string, startParamIndex int) ([]Expression, int, error) {
@@ -524,10 +545,27 @@ func parseValueTupleWithIndex(tuple string, startParamIndex int) ([]Expression, 
 			// Parameter placeholder - use global index
 			expressions = append(expressions, &ParameterExpr{Index: paramIndex})
 			paramIndex++
+		} else if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			// Struct literal like {'a': 'b', 'c': 'd'}
+			structExpr := parseStructLiteral(part)
+			expressions = append(expressions, structExpr)
+		} else if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
+			// Array literal like ['a', 'b', 'c']
+			arrayExpr := parseArrayLiteral(part)
+			expressions = append(expressions, arrayExpr)
 		} else if strings.HasPrefix(part, "'") && strings.HasSuffix(part, "'") {
 			// String literal
 			value := part[1 : len(part)-1]
 			expressions = append(expressions, &ConstantExpr{Value: value})
+		} else if strings.Contains(part, "(") && strings.Contains(part, ")") {
+			// Function call like MAP(...) or other functions
+			funcExpr := parseFunctionExpression(part)
+			if funcExpr != nil {
+				expressions = append(expressions, funcExpr)
+			} else {
+				// Fallback to constant
+				expressions = append(expressions, &ConstantExpr{Value: part})
+			}
 		} else {
 			// Try to parse as number
 			if num, err := parseNumber(part); err == nil {
@@ -540,6 +578,110 @@ func parseValueTupleWithIndex(tuple string, startParamIndex int) ([]Expression, 
 	}
 	
 	return expressions, paramIndex, nil
+}
+
+// parseStructLiteral parses struct literals like {'key': 'value', 'num': 123}
+func parseStructLiteral(structStr string) Expression {
+	// Remove braces
+	structStr = strings.TrimPrefix(structStr, "{")
+	structStr = strings.TrimSuffix(structStr, "}")
+	structStr = strings.TrimSpace(structStr)
+	
+	// Handle empty struct
+	if structStr == "" {
+		return &ConstantExpr{Value: map[string]interface{}{}}
+	}
+	
+	// Split struct fields by comma, respecting quoted strings and nested structures
+	fields := splitByComma(structStr)
+	structMap := make(map[string]interface{})
+	
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		
+		// Find the colon separator
+		colonIdx := strings.Index(field, ":")
+		if colonIdx == -1 {
+			continue // Skip invalid field
+		}
+		
+		// Extract key and value
+		keyPart := strings.TrimSpace(field[:colonIdx])
+		valuePart := strings.TrimSpace(field[colonIdx+1:])
+		
+		// Parse key (should be quoted)
+		var key string
+		if strings.HasPrefix(keyPart, "'") && strings.HasSuffix(keyPart, "'") {
+			key = keyPart[1 : len(keyPart)-1]
+		} else {
+			key = keyPart // Allow unquoted keys
+		}
+		
+		// Parse value
+		var value interface{}
+		if strings.HasPrefix(valuePart, "'") && strings.HasSuffix(valuePart, "'") {
+			// String literal
+			value = valuePart[1 : len(valuePart)-1]
+		} else if strings.HasPrefix(valuePart, "[") && strings.HasSuffix(valuePart, "]") {
+			// Array literal - parse and extract the value
+			arrayExpr := parseArrayLiteral(valuePart)
+			if constExpr, ok := arrayExpr.(*ConstantExpr); ok {
+				value = constExpr.Value
+			} else {
+				value = valuePart // Fallback
+			}
+		} else if strings.Contains(valuePart, "(") && strings.Contains(valuePart, ")") {
+			// Function call - we need to store this as is for now, it will be evaluated during INSERT
+			// We can't evaluate it here because we don't have the execution context
+			value = valuePart
+		} else if num, err := parseNumber(valuePart); err == nil {
+			// Number
+			value = num
+		} else {
+			// Treat as string (unquoted)
+			value = valuePart
+		}
+		
+		structMap[key] = value
+	}
+	
+	return &ConstantExpr{Value: structMap}
+}
+
+// parseArrayLiteral parses array literals like ['a', 'b', 'c'] or [1, 2, 3]
+func parseArrayLiteral(arrayStr string) Expression {
+	// Remove brackets
+	arrayStr = strings.TrimPrefix(arrayStr, "[")
+	arrayStr = strings.TrimSuffix(arrayStr, "]")
+	arrayStr = strings.TrimSpace(arrayStr)
+	
+	// Handle empty array
+	if arrayStr == "" {
+		return &ConstantExpr{Value: []interface{}{}}
+	}
+	
+	// Split array elements by comma, respecting quoted strings
+	elements := splitByComma(arrayStr)
+	var values []interface{}
+	
+	for _, element := range elements {
+		element = strings.TrimSpace(element)
+		
+		// Parse each element
+		if strings.HasPrefix(element, "'") && strings.HasSuffix(element, "'") {
+			// String literal
+			value := element[1 : len(element)-1]
+			values = append(values, value)
+		} else if num, err := parseNumber(element); err == nil {
+			// Number
+			values = append(values, num)
+		} else {
+			// Treat as string (unquoted)
+			values = append(values, element)
+		}
+	}
+	
+	return &ConstantExpr{Value: values}
 }
 
 // parseNumber attempts to parse a string as a number
@@ -557,19 +699,85 @@ func parseNumber(s string) (interface{}, error) {
 	return nil, fmt.Errorf("not a number")
 }
 
-// splitByComma splits a string by commas, respecting quoted strings
+// splitByComma splits a string by commas, respecting quoted strings, array brackets, struct braces, and parentheses
 func splitByComma(s string) []string {
 	var parts []string
 	var current strings.Builder
 	inString := false
+	bracketDepth := 0
+	braceDepth := 0
+	parenDepth := 0
 	
 	for _, ch := range s {
 		switch ch {
 		case '\'':
 			inString = !inString
 			current.WriteRune(ch)
-		case ',':
+		case '[':
 			if !inString {
+				bracketDepth++
+			}
+			current.WriteRune(ch)
+		case ']':
+			if !inString {
+				bracketDepth--
+			}
+			current.WriteRune(ch)
+		case '{':
+			if !inString {
+				braceDepth++
+			}
+			current.WriteRune(ch)
+		case '}':
+			if !inString {
+				braceDepth--
+			}
+			current.WriteRune(ch)
+		case '(':
+			if !inString {
+				parenDepth++
+			}
+			current.WriteRune(ch)
+		case ')':
+			if !inString {
+				parenDepth--
+			}
+			current.WriteRune(ch)
+		case ',':
+			if !inString && bracketDepth == 0 && braceDepth == 0 && parenDepth == 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			} else {
+				current.WriteRune(ch)
+			}
+		default:
+			current.WriteRune(ch)
+		}
+	}
+	
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	
+	return parts
+}
+
+// splitByCommaRespectingParens splits a string by commas, respecting parentheses for CREATE TABLE column definitions
+func splitByCommaRespectingParens(s string) []string {
+	var parts []string
+	var current strings.Builder
+	parenDepth := 0
+	
+	for _, ch := range s {
+		switch ch {
+		case '(':
+			parenDepth++
+			current.WriteRune(ch)
+		case ')':
+			parenDepth--
+			current.WriteRune(ch)
+		case ',':
+			if parenDepth == 0 {
 				parts = append(parts, current.String())
 				current.Reset()
 			} else {
@@ -631,8 +839,8 @@ func parseColumnDefinitions(colDefs string) []ColumnDefinition {
 	// Simple parsing of column definitions
 	var columns []ColumnDefinition
 	
-	// Split by comma (note: this is simplified and doesn't handle all cases)
-	parts := strings.Split(colDefs, ",")
+	// Split by comma, respecting parentheses for complex types
+	parts := splitByCommaRespectingParens(colDefs)
 	
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -641,36 +849,64 @@ func parseColumnDefinitions(colDefs string) []ColumnDefinition {
 		}
 		
 		// Split column definition into name and type
-		fields := strings.Fields(part)
-		if len(fields) < 2 {
-			continue
+		// For complex types like STRUCT(...), we need to be more careful about parsing
+		spaceIdx := strings.Index(part, " ")
+		if spaceIdx == -1 {
+			continue // No space found, invalid column definition
 		}
 		
-		colName := fields[0]
-		colType := fields[1]
+		colName := strings.TrimSpace(part[:spaceIdx])
+		colType := strings.TrimSpace(part[spaceIdx+1:])
+		
+		// Check for array syntax (e.g., VARCHAR[], INTEGER[])
+		isArray := strings.HasSuffix(colType, "[]")
+		if isArray {
+			colType = strings.TrimSuffix(colType, "[]")
+		}
 		
 		// Convert SQL type to storage type
 		var logicalType storage.LogicalType
-		switch strings.ToUpper(colType) {
-		case "INTEGER", "INT":
-			logicalType = storage.LogicalType{ID: storage.TypeInteger}
-		case "BIGINT":
-			logicalType = storage.LogicalType{ID: storage.TypeBigInt}
-		case "VARCHAR", "TEXT", "STRING":
-			logicalType = storage.LogicalType{ID: storage.TypeVarchar}
-		case "DOUBLE", "REAL":
-			logicalType = storage.LogicalType{ID: storage.TypeDouble}
-		case "BOOLEAN", "BOOL":
-			logicalType = storage.LogicalType{ID: storage.TypeBoolean}
-		case "DECIMAL":
-			logicalType = storage.LogicalType{ID: storage.TypeDecimal, Width: 18, Scale: 3}
-		case "DATE":
-			logicalType = storage.LogicalType{ID: storage.TypeDate}
-		case "TIMESTAMP":
-			logicalType = storage.LogicalType{ID: storage.TypeTimestamp}
-		default:
-			// Default to varchar
-			logicalType = storage.LogicalType{ID: storage.TypeVarchar}
+		if isArray {
+			// For now, treat all arrays as generic LIST type
+			// TODO: Parse element type and create typed list
+			logicalType = storage.LogicalType{ID: storage.TypeList}
+		} else {
+			upperColType := strings.ToUpper(colType)
+			switch {
+			case upperColType == "INTEGER" || upperColType == "INT":
+				logicalType = storage.LogicalType{ID: storage.TypeInteger}
+			case upperColType == "BIGINT":
+				logicalType = storage.LogicalType{ID: storage.TypeBigInt}
+			case upperColType == "VARCHAR" || upperColType == "TEXT" || upperColType == "STRING":
+				logicalType = storage.LogicalType{ID: storage.TypeVarchar}
+			case upperColType == "DOUBLE" || upperColType == "REAL":
+				logicalType = storage.LogicalType{ID: storage.TypeDouble}
+			case upperColType == "BOOLEAN" || upperColType == "BOOL":
+				logicalType = storage.LogicalType{ID: storage.TypeBoolean}
+			case upperColType == "DECIMAL":
+				logicalType = storage.LogicalType{ID: storage.TypeDecimal, Width: 18, Scale: 3}
+			case upperColType == "DATE":
+				logicalType = storage.LogicalType{ID: storage.TypeDate}
+			case upperColType == "TIMESTAMP":
+				logicalType = storage.LogicalType{ID: storage.TypeTimestamp}
+			case upperColType == "UUID":
+				logicalType = storage.LogicalType{ID: storage.TypeUUID}
+			case upperColType == "LIST" || strings.HasPrefix(upperColType, "LIST("):
+				// For now, treat LIST as a generic list type
+				// TODO: Parse LIST(element_type) syntax
+				logicalType = storage.LogicalType{ID: storage.TypeList}
+			case upperColType == "STRUCT" || strings.HasPrefix(upperColType, "STRUCT("):
+				// For now, treat STRUCT as a generic struct type
+				// TODO: Parse STRUCT(field_name type, ...) syntax
+				logicalType = storage.LogicalType{ID: storage.TypeStruct}
+			case upperColType == "MAP" || strings.HasPrefix(upperColType, "MAP("):
+				// For now, treat MAP as a generic map type
+				// TODO: Parse MAP(key_type, value_type) syntax
+				logicalType = storage.LogicalType{ID: storage.TypeMap}
+			default:
+				// Default to varchar
+				logicalType = storage.LogicalType{ID: storage.TypeVarchar}
+			}
 		}
 		
 		columns = append(columns, ColumnDefinition{
@@ -754,6 +990,23 @@ func parseWhereExpressionWithParams(where string, paramIndex *int) Expression {
 		}
 	}
 	
+	// Check for IS NULL / IS NOT NULL
+	if strings.HasSuffix(upperWhere, " IS NULL") {
+		column := strings.TrimSpace(where[:len(where)-8]) // Remove " IS NULL"
+		return &UnaryExpr{
+			Op:   OpIsNull,
+			Expr: parseColumnExpression(column),
+		}
+	}
+	
+	if strings.HasSuffix(upperWhere, " IS NOT NULL") {
+		column := strings.TrimSpace(where[:len(where)-12]) // Remove " IS NOT NULL"
+		return &UnaryExpr{
+			Op:   OpIsNotNull,
+			Expr: parseColumnExpression(column),
+		}
+	}
+	
 	// Check for LIKE
 	if strings.Contains(upperWhere, " LIKE ") {
 		likeIdx := strings.Index(upperWhere, " LIKE ")
@@ -826,6 +1079,14 @@ func parseWhereExpressionWithParams(where string, paramIndex *int) Expression {
 		}
 	}
 	
+	// Check for function calls (contains parentheses)
+	if strings.Contains(where, "(") && strings.Contains(where, ")") {
+		funcExpr := parseFunctionExpression(where)
+		if funcExpr != nil {
+			return funcExpr
+		}
+	}
+	
 	// If no operator found, try to parse as a simple column reference or value
 	// This could be the case for expressions like "column" without operators
 	if isIdentifier(where) {
@@ -842,10 +1103,6 @@ func parseWhereExpressionWithParams(where string, paramIndex *int) Expression {
 }
 
 // parseValueExpression parses a value expression (constant, parameter, or column)
-func parseValueExpression(s string) Expression {
-	paramIdx := 1
-	return parseValueExpressionWithParams(s, &paramIdx)
-}
 
 // parseValueExpressionWithParams parses a value expression with parameter tracking
 func parseValueExpressionWithParams(s string, paramIndex *int) Expression {
@@ -1137,18 +1394,25 @@ func parseFunctionExpression(funcCall string) Expression {
 			// Special case for COUNT(*)
 			args = []Expression{&ColumnExpr{Column: "*"}}
 		} else {
-			// Parse comma-separated arguments
-			argParts := strings.Split(argsStr, ",")
+			// Parse comma-separated arguments, respecting brackets and parentheses
+			argParts := splitFunctionArguments(argsStr)
 			for _, arg := range argParts {
 				arg = strings.TrimSpace(arg)
 				if arg == "*" {
 					args = append(args, &ColumnExpr{Column: "*"})
 				} else {
-					// Try to parse as constant or column
-					if val, err := parseValue(arg); err == nil {
-						args = append(args, &ConstantExpr{Value: val})
+					// Check for array literal first
+					if strings.HasPrefix(arg, "[") && strings.HasSuffix(arg, "]") {
+						// Parse as array literal
+						arrayExpr := parseArrayLiteral(arg)
+						args = append(args, arrayExpr)
 					} else {
-						args = append(args, parseColumnExpression(arg))
+						// Try to parse as constant or column, or complex expression (including nested functions)
+						if val, err := parseValue(arg); err == nil {
+							args = append(args, &ConstantExpr{Value: val})
+						} else {
+							args = append(args, parseComplexExpressionValue(arg))
+						}
 					}
 				}
 			}
@@ -1205,13 +1469,83 @@ func parseSelectColumns(selectPart string) ([]Expression, error) {
 func parseColumnExpression(col string) Expression {
 	col = strings.TrimSpace(col)
 	
-	// Check for table.column syntax
+	// Check for array/map access with brackets first
+	if strings.Contains(col, "[") {
+		bracketIdx := strings.Index(col, "[")
+		base := col[:bracketIdx]
+		indexPart := col[bracketIdx+1:]
+		
+		// Remove closing bracket
+		if strings.HasSuffix(indexPart, "]") {
+			indexPart = indexPart[:len(indexPart)-1]
+		}
+		
+		// Parse the base expression
+		baseExpr := parseColumnExpression(base)
+		
+		// Parse the index/key
+		var keyExpr Expression
+		if strings.HasPrefix(indexPart, "'") && strings.HasSuffix(indexPart, "'") {
+			// String key
+			keyExpr = &ConstantExpr{Value: indexPart[1:len(indexPart)-1]}
+		} else if num, err := parseNumber(indexPart); err == nil {
+			// Numeric index
+			keyExpr = &ConstantExpr{Value: num}
+		} else {
+			// Column reference or other expression
+			keyExpr = parseColumnExpression(indexPart)
+		}
+		
+		// Return a function expression for array/map access
+		return &FunctionExpr{
+			Name: "element_at",
+			Args: []Expression{baseExpr, keyExpr},
+		}
+	}
+	
+	// Check for dots which could indicate table.column or struct field access
 	if strings.Contains(col, ".") {
 		parts := strings.Split(col, ".")
-		if len(parts) == 2 {
-			return &ColumnExpr{
-				Table:  strings.TrimSpace(parts[0]),
-				Column: strings.TrimSpace(parts[1]),
+		
+		// If we have multiple dots, it's likely struct field access
+		// e.g., customer_info.addresses.billing.city
+		if len(parts) > 2 {
+			// Start with the first part as a column
+			expr := Expression(&ColumnExpr{Column: parts[0]})
+			
+			// Chain field accesses
+			for i := 1; i < len(parts); i++ {
+				expr = &FieldAccessExpr{
+					Expr:  expr,
+					Field: strings.TrimSpace(parts[i]),
+				}
+			}
+			return expr
+		} else if len(parts) == 2 {
+			// Could be table.column or column.field
+			// For now, we'll assume it's table.column if the first part is a known table alias
+			// Otherwise, treat it as field access
+			// TODO: This needs context about table aliases to be more accurate
+			
+			// Common table aliases
+			knownAliases := map[string]bool{
+				"c": true, "o": true, "p": true, "s": true,
+				"customers": true, "orders": true, "products": true,
+			}
+			
+			firstPart := strings.TrimSpace(parts[0])
+			if knownAliases[firstPart] {
+				// Treat as table.column
+				return &ColumnExpr{
+					Table:  firstPart,
+					Column: strings.TrimSpace(parts[1]),
+				}
+			} else {
+				// Treat as column.field
+				return &FieldAccessExpr{
+					Expr:  &ColumnExpr{Column: firstPart},
+					Field: strings.TrimSpace(parts[1]),
+				}
 			}
 		}
 	}
@@ -1305,42 +1639,6 @@ func parseFromClause(fromPart string) (*TableRef, []JoinClause, string, error) {
 }
 
 // parseSelectRemainder parses WHERE, GROUP BY, ORDER BY, LIMIT etc. from the remainder of a SELECT
-func parseSelectRemainder(remainder string) (Expression, *int64, error) {
-	remainder = strings.TrimSpace(remainder)
-	if remainder == "" {
-		return nil, nil, nil
-	}
-	
-	var where Expression
-	var limit *int64
-	
-	// Check for WHERE clause
-	if strings.HasPrefix(strings.ToUpper(remainder), "WHERE ") {
-		wherePart := remainder[6:] // Skip "WHERE "
-		
-		// Check if there's a LIMIT after WHERE
-		if limitIdx := strings.Index(strings.ToUpper(wherePart), " LIMIT "); limitIdx != -1 {
-			whereCondition := strings.TrimSpace(wherePart[:limitIdx])
-			limitPart := strings.TrimSpace(wherePart[limitIdx+7:])
-			
-			if limitVal, err := strconv.ParseInt(limitPart, 10, 64); err == nil {
-				limit = &limitVal
-			}
-			
-			where = parseWhereExpression(whereCondition)
-		} else {
-			where = parseWhereExpression(wherePart)
-		}
-	} else if strings.HasPrefix(strings.ToUpper(remainder), "LIMIT ") {
-		// No WHERE, just LIMIT
-		limitPart := strings.TrimSpace(remainder[6:])
-		if limitVal, err := strconv.ParseInt(limitPart, 10, 64); err == nil {
-			limit = &limitVal
-		}
-	}
-	
-	return where, limit, nil
-}
 
 // parseCompleteSelectRemainder parses WHERE, GROUP BY, HAVING, ORDER BY, LIMIT etc. from the remainder of a SELECT
 func parseCompleteSelectRemainder(remainder string) (Expression, []Expression, Expression, []OrderByExpr, *int64, error) {
@@ -1902,9 +2200,10 @@ func findTopLevelUnion(sql, upperSQL, keyword string) int {
 		}
 		
 		// Track parentheses depth
-		if ch == '(' {
+		switch ch {
+		case '(':
 			parenDepth++
-		} else if ch == ')' {
+		case ')':
 			parenDepth--
 		}
 		
@@ -2150,9 +2449,10 @@ func findTopLevelFromClause(sql string) int {
 		}
 		
 		// Track parentheses depth
-		if ch == '(' {
+		switch ch {
+		case '(':
 			parenDepth++
-		} else if ch == ')' {
+		case ')':
 			parenDepth--
 		}
 		
@@ -2198,9 +2498,100 @@ func parseComplexExpressionValue(s string) Expression {
 		}
 	}
 	
+	// Check for binary operators (arithmetic: +, -, *, /)
+	for _, op := range []string{" + ", " - ", " * ", " / "} {
+		if strings.Contains(s, op) {
+			// Find the operator (need to handle precedence properly)
+			// For now, simple left-to-right parsing
+			idx := strings.Index(s, op)
+			if idx > 0 && idx < len(s)-len(op) {
+				left := strings.TrimSpace(s[:idx])
+				right := strings.TrimSpace(s[idx+len(op):])
+				
+				leftExpr := parseComplexExpressionValue(left)
+				rightExpr := parseComplexExpressionValue(right)
+				
+				var binOp BinaryOp
+				switch strings.TrimSpace(op) {
+				case "+":
+					binOp = OpPlus
+				case "-":
+					binOp = OpMinus
+				case "*":
+					binOp = OpMult
+				case "/":
+					binOp = OpDiv
+				}
+				
+				return &BinaryExpr{
+					Left:  leftExpr,
+					Op:    binOp,
+					Right: rightExpr,
+				}
+			}
+		}
+	}
+	
 	// Parse as regular expression value
 	return parseExpressionValue(s)
 }
+
+// splitFunctionArguments splits function arguments properly handling nested brackets and parentheses
+func splitFunctionArguments(args string) []string {
+	var parts []string
+	var current strings.Builder
+	parenDepth := 0
+	bracketDepth := 0
+	inString := false
+	
+	for i, ch := range args {
+		switch ch {
+		case '\'':
+			if i == 0 || args[i-1] != '\\' {
+				inString = !inString
+			}
+			current.WriteRune(ch)
+		case '(':
+			if !inString {
+				parenDepth++
+			}
+			current.WriteRune(ch)
+		case ')':
+			if !inString {
+				parenDepth--
+			}
+			current.WriteRune(ch)
+		case '[':
+			if !inString {
+				bracketDepth++
+			}
+			current.WriteRune(ch)
+		case ']':
+			if !inString {
+				bracketDepth--
+			}
+			current.WriteRune(ch)
+		case ',':
+			if !inString && parenDepth == 0 && bracketDepth == 0 {
+				// This comma is at the top level, split here
+				parts = append(parts, current.String())
+				current.Reset()
+			} else {
+				current.WriteRune(ch)
+			}
+		default:
+			current.WriteRune(ch)
+		}
+	}
+	
+	// Add the last part
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	
+	return parts
+}
+
 
 // parseSubqueryInWhere parses subqueries in WHERE clauses (EXISTS, IN)
 func parseSubqueryInWhere(where string) Expression {

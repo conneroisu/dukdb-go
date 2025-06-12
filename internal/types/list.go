@@ -150,3 +150,19 @@ func (l *List[T]) Scan(value interface{}) error {
 		return fmt.Errorf("cannot scan %T into List[%T]", value, *new(T))
 	}
 }
+
+// MarshalJSON implements json.Marshaler
+func (l *List[T]) MarshalJSON() ([]byte, error) {
+	if l == nil {
+		return []byte("null"), nil
+	}
+	return json.Marshal(l.values)
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (l *List[T]) UnmarshalJSON(data []byte) error {
+	if l == nil {
+		return fmt.Errorf("cannot unmarshal into nil List")
+	}
+	return json.Unmarshal(data, &l.values)
+}

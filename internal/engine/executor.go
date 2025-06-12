@@ -68,7 +68,12 @@ func (e *Executor) executeScan(ctx context.Context, plan *ScanPlan) (*QueryResul
 	if err != nil {
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
-	
+
+	// fmt.Printf("DEBUG Scan: table=%s, chunks=%d\n", plan.Table.name, len(chunks))
+	// for i, chunk := range chunks {
+	//	fmt.Printf("DEBUG Scan chunk %d: size=%d\n", i, chunk.Size())
+	// }
+
 	// Create column metadata
 	columnDefs := plan.Table.GetColumns()
 	columns := make([]Column, len(columnDefs))
@@ -81,7 +86,7 @@ func (e *Executor) executeScan(ctx context.Context, plan *ScanPlan) (*QueryResul
 			Scale:     def.Type.Scale,
 		}
 	}
-	
+
 	return &QueryResult{
 		chunks:  chunks,
 		columns: columns,
@@ -96,9 +101,9 @@ func (e *Executor) executeValues(ctx context.Context, plan *ValuesPlan) (*QueryR
 	for i, expr := range plan.Expressions {
 		schema[i] = inferExpressionType(expr, nil)
 	}
-	
+
 	chunk := storage.NewDataChunk(schema, 1)
-	
+
 	// Evaluate expressions
 	for i, expr := range plan.Expressions {
 		val, err := evaluateExpression(expr, nil, 0)
@@ -112,7 +117,7 @@ func (e *Executor) executeValues(ctx context.Context, plan *ValuesPlan) (*QueryR
 	if err := chunk.SetSize(1); err != nil {
 		return nil, fmt.Errorf("failed to set chunk size: %w", err)
 	}
-	
+
 	// Create column metadata
 	columns := make([]Column, len(plan.Expressions))
 	for i := range plan.Expressions {
@@ -121,7 +126,7 @@ func (e *Executor) executeValues(ctx context.Context, plan *ValuesPlan) (*QueryR
 			Type: schema[i],
 		}
 	}
-	
+
 	return &QueryResult{
 		chunks:  []*storage.DataChunk{chunk},
 		columns: columns,
@@ -137,7 +142,7 @@ func (e *Executor) executeProject(ctx context.Context, plan *ProjectPlan) (*Quer
 		return nil, err
 	}
 	defer func() { _ = childResult.Close() }() // Closing errors not critical in defer
-	
+
 	// If projecting all columns (*), return child result as-is
 	if len(plan.Expressions) == 1 {
 		if col, ok := plan.Expressions[0].(*ColumnExpr); ok && col.Column == "*" {
@@ -151,7 +156,7 @@ func (e *Executor) executeProject(ctx context.Context, plan *ProjectPlan) (*Quer
 			return result, nil
 		}
 	}
-	
+
 	// Create projection operator
 	inputSchema := make([]storage.LogicalType, len(childResult.columns))
 	columnNames := make([]string, len(childResult.columns))
@@ -159,13 +164,13 @@ func (e *Executor) executeProject(ctx context.Context, plan *ProjectPlan) (*Quer
 		inputSchema[i] = col.Type
 		columnNames[i] = col.Name
 	}
-	
+
 	projOp := NewProjectOperatorWithContext(plan.Expressions, inputSchema, columnNames)
-	
+
 	// Process each chunk
 	var outputChunks []*storage.DataChunk
 	childResult.current = -1 // Reset to start
-	
+
 	for childResult.Next() {
 		inputChunk := childResult.GetChunk()
 		outputChunk, err := projOp.Execute(ctx, inputChunk)
@@ -174,7 +179,7 @@ func (e *Executor) executeProject(ctx context.Context, plan *ProjectPlan) (*Quer
 		}
 		outputChunks = append(outputChunks, outputChunk)
 	}
-	
+
 	// Create output columns metadata with proper names
 	outputSchema := projOp.GetOutputSchema()
 	columns := make([]Column, len(outputSchema))
@@ -184,8 +189,21 @@ func (e *Executor) executeProject(ctx context.Context, plan *ProjectPlan) (*Quer
 		if i < len(plan.Expressions) {
 			if col, ok := plan.Expressions[i].(*ColumnExpr); ok {
 				colName = col.Column
-			} else if funcExpr, ok := plan.Expressions[i].(*FunctionExpr); ok && funcExpr.Alias != "" {
-				colName = funcExpr.Alias
+			} else if funcExpr, ok := plan.Expressions[i].(*FunctionExpr); ok {
+				if funcExpr.Alias != "" {
+					colName = funcExpr.Alias
+				} else {
+					// Create column name based on function and arguments
+					if len(funcExpr.Args) > 0 {
+						if argCol, ok := funcExpr.Args[0].(*ColumnExpr); ok {
+							colName = fmt.Sprintf("%s(%s)", strings.ToLower(funcExpr.Name), argCol.Column)
+						} else {
+							colName = strings.ToLower(funcExpr.Name)
+						}
+					} else {
+						colName = strings.ToLower(funcExpr.Name)
+					}
+				}
 			} else if _, ok := plan.Expressions[i].(*BinaryExpr); ok {
 				// For computed expressions like oi.quantity * oi.unit_price
 				colName = fmt.Sprintf("expr_%d", i)
@@ -195,13 +213,13 @@ func (e *Executor) executeProject(ctx context.Context, plan *ProjectPlan) (*Quer
 		} else {
 			colName = fmt.Sprintf("col_%d", i)
 		}
-		
+
 		columns[i] = Column{
 			Name: colName,
 			Type: typ,
 		}
 	}
-	
+
 	return &QueryResult{
 		chunks:  outputChunks,
 		columns: columns,
@@ -217,7 +235,7 @@ func (e *Executor) executeFilter(ctx context.Context, plan *FilterPlan) (*QueryR
 		return nil, err
 	}
 	defer func() { _ = childResult.Close() }() // Closing errors not critical in defer
-	
+
 	// Create filter operator with column context
 	inputSchema := make([]storage.LogicalType, len(childResult.columns))
 	columnNames := make([]string, len(childResult.columns))
@@ -225,13 +243,16 @@ func (e *Executor) executeFilter(ctx context.Context, plan *FilterPlan) (*QueryR
 		inputSchema[i] = col.Type
 		columnNames[i] = col.Name
 	}
-	
+
+	// fmt.Printf("DEBUG Filter Plan: predicate=%T, inputSchema=%v, columnNames=%v\n", plan.Predicate, inputSchema, columnNames)
 	filterOp := NewFilterOperatorWithContext(plan.Predicate, inputSchema, columnNames)
-	
+
 	// Process each chunk
 	var outputChunks []*storage.DataChunk
 	childResult.current = -1 // Reset to start
-	
+
+	// fmt.Printf("DEBUG Filter: About to process child chunks\n")
+
 	for childResult.Next() {
 		inputChunk := childResult.GetChunk()
 		outputChunk, err := filterOp.Execute(ctx, inputChunk)
@@ -242,7 +263,7 @@ func (e *Executor) executeFilter(ctx context.Context, plan *FilterPlan) (*QueryR
 			outputChunks = append(outputChunks, outputChunk)
 		}
 	}
-	
+
 	return &QueryResult{
 		chunks:  outputChunks,
 		columns: childResult.columns,
@@ -258,23 +279,23 @@ func (e *Executor) executeSort(ctx context.Context, plan *SortPlan) (*QueryResul
 		return nil, err
 	}
 	defer func() { _ = childResult.Close() }() // Closing errors not critical in defer
-	
+
 	// For sort, we need to materialize all data first
 	// In a real implementation, we'd use external sort for large datasets
-	
+
 	// Create schema
 	inputSchema := make([]storage.LogicalType, len(childResult.columns))
 	for i, col := range childResult.columns {
 		inputSchema[i] = col.Type
 	}
-	
+
 	// Collect all chunks
 	var allChunks []*storage.DataChunk
 	childResult.current = -1
 	for childResult.Next() {
 		allChunks = append(allChunks, childResult.GetChunk())
 	}
-	
+
 	if len(allChunks) == 0 {
 		return &QueryResult{
 			chunks:  []*storage.DataChunk{},
@@ -283,17 +304,16 @@ func (e *Executor) executeSort(ctx context.Context, plan *SortPlan) (*QueryResul
 		}, nil
 	}
 
-	
 	// For simplicity, merge all chunks into one for sorting
 	// In production, we'd use a more sophisticated approach
 	totalSize := 0
 	for _, chunk := range allChunks {
 		totalSize += chunk.Size()
 	}
-	
+
 	mergedChunk := storage.NewDataChunk(inputSchema, totalSize)
 	destRow := 0
-	
+
 	for _, chunk := range allChunks {
 		for row := 0; row < chunk.Size(); row++ {
 			for col := 0; col < chunk.ColumnCount(); col++ {
@@ -308,19 +328,19 @@ func (e *Executor) executeSort(ctx context.Context, plan *SortPlan) (*QueryResul
 	if err := mergedChunk.SetSize(totalSize); err != nil {
 		return nil, fmt.Errorf("failed to set merged chunk size: %w", err)
 	}
-	
+
 	// Sort the merged chunk with column names for alias resolution
 	columnNames := make([]string, len(childResult.columns))
 	for i, col := range childResult.columns {
 		columnNames[i] = col.Name
 	}
-	
+
 	sortOp := NewSortOperatorWithContext(plan.OrderBy, inputSchema, columnNames)
 	sortedChunk, err := sortOp.Execute(ctx, mergedChunk)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &QueryResult{
 		chunks:  []*storage.DataChunk{sortedChunk},
 		columns: childResult.columns,
@@ -336,37 +356,37 @@ func (e *Executor) executeLimit(ctx context.Context, plan *LimitPlan) (*QueryRes
 		return nil, err
 	}
 	defer func() { _ = childResult.Close() }() // Closing errors not critical in defer
-	
+
 	// Create schema
 	inputSchema := make([]storage.LogicalType, len(childResult.columns))
 	for i, col := range childResult.columns {
 		inputSchema[i] = col.Type
 	}
-	
+
 	// Create limit operator
 	limitOp := NewLimitOperator(plan.Limit, plan.Offset, inputSchema)
-	
+
 	// Process chunks until we reach the limit
 	var outputChunks []*storage.DataChunk
 	childResult.current = -1
-	
+
 	for childResult.Next() {
 		inputChunk := childResult.GetChunk()
 		outputChunk, err := limitOp.Execute(ctx, inputChunk)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		if outputChunk.Size() > 0 {
 			outputChunks = append(outputChunks, outputChunk)
 		}
-		
+
 		// Check if we've reached the limit
 		if limitOp.consumed >= limitOp.offset+limitOp.limit {
 			break
 		}
 	}
-	
+
 	return &QueryResult{
 		chunks:  outputChunks,
 		columns: childResult.columns,
@@ -382,21 +402,34 @@ func (e *Executor) executeInsert(ctx context.Context, plan *InsertPlan) (*QueryR
 	for i, valueRow := range plan.Values {
 		row := make([]interface{}, len(valueRow))
 		for j, expr := range valueRow {
-			if constExpr, ok := expr.(*ConstantExpr); ok {
-				row[j] = constExpr.Value
-			} else {
-				return nil, fmt.Errorf("only constant values supported in INSERT")
+			switch e := expr.(type) {
+			case *ConstantExpr:
+				// Recursively evaluate any function calls in the constant value
+				evaluatedValue, err := evaluateConstantValue(e.Value)
+				if err != nil {
+					return nil, fmt.Errorf("failed to evaluate constant value in INSERT: %w", err)
+				}
+				row[j] = evaluatedValue
+			case *FunctionExpr:
+				// Evaluate function expressions (like MAP(), LIST())
+				value, err := evaluateExpressionWithContext(e, nil, 0, &EvaluationContext{})
+				if err != nil {
+					return nil, fmt.Errorf("failed to evaluate function in INSERT: %w", err)
+				}
+				row[j] = value
+			default:
+				return nil, fmt.Errorf("only constant values and functions supported in INSERT, got %T", expr)
 			}
 		}
 		rows[i] = row
 	}
-	
+
 	// Insert into table
 	err := plan.Table.Insert(rows)
 	if err != nil {
 		return nil, fmt.Errorf("insert failed: %w", err)
 	}
-	
+
 	// Return empty result with row count
 	return &QueryResult{
 		chunks:  []*storage.DataChunk{},
@@ -411,7 +444,7 @@ func (e *Executor) executeCreateTable(ctx context.Context, plan *CreateTablePlan
 	if err != nil {
 		return nil, fmt.Errorf("create table failed: %w", err)
 	}
-	
+
 	// Return empty result
 	return &QueryResult{
 		chunks:  []*storage.DataChunk{},
@@ -422,7 +455,7 @@ func (e *Executor) executeCreateTable(ctx context.Context, plan *CreateTablePlan
 // executeTransaction executes a transaction control operation
 func (e *Executor) executeTransaction(ctx context.Context, plan *TransactionPlan) (*QueryResult, error) {
 	var err error
-	
+
 	switch plan.Type {
 	case TxnBegin:
 		err = e.connection.beginTransactionInternal()
@@ -433,11 +466,11 @@ func (e *Executor) executeTransaction(ctx context.Context, plan *TransactionPlan
 	default:
 		err = fmt.Errorf("unknown transaction operation: %v", plan.Type)
 	}
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Return empty result
 	return &QueryResult{
 		chunks:  []*storage.DataChunk{},
@@ -449,23 +482,23 @@ func (e *Executor) executeTransaction(ctx context.Context, plan *TransactionPlan
 func (e *Executor) executeUpdate(ctx context.Context, plan *UpdatePlan) (*QueryResult, error) {
 	// For now, implement a simple update by scanning all rows,
 	// evaluating WHERE clause, and updating matching rows
-	
+
 	// Get all data chunks
 	chunks, err := plan.Table.Scan()
 	if err != nil {
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
-	
+
 	// Get column definitions
 	columnDefs := plan.Table.GetColumns()
 	columnMap := make(map[string]int)
 	for i, col := range columnDefs {
 		columnMap[col.Name] = i
 	}
-	
+
 	// Count updated rows
 	updatedRows := 0
-	
+
 	// Process each chunk
 	for _, chunk := range chunks {
 		for row := 0; row < chunk.Size(); row++ {
@@ -478,7 +511,7 @@ func (e *Executor) executeUpdate(ctx context.Context, plan *UpdatePlan) (*QueryR
 				}
 				shouldUpdate = match
 			}
-			
+
 			if shouldUpdate {
 				// Apply SET clauses
 				for _, set := range plan.Sets {
@@ -486,28 +519,28 @@ func (e *Executor) executeUpdate(ctx context.Context, plan *UpdatePlan) (*QueryR
 					if !exists {
 						return nil, fmt.Errorf("column %s not found", set.Column)
 					}
-					
+
 					// Evaluate the value expression
 					value, err := evaluateExpression(set.Value, chunk, row)
 					if err != nil {
 						return nil, err
 					}
-					
+
 					// Update the value
 					if err := chunk.SetValue(colIdx, row, value); err != nil {
 						return nil, err
 					}
 				}
-				
+
 				updatedRows++
 			}
 		}
 	}
-	
+
 	// Return result with row count
 	return &QueryResult{
-		chunks:  []*storage.DataChunk{},
-		columns: []Column{},
+		chunks:       []*storage.DataChunk{},
+		columns:      []Column{},
 		rowsAffected: int64(updatedRows),
 	}, nil
 }
@@ -516,32 +549,32 @@ func (e *Executor) executeUpdate(ctx context.Context, plan *UpdatePlan) (*QueryR
 func (e *Executor) executeDelete(ctx context.Context, plan *DeletePlan) (*QueryResult, error) {
 	// For now, implement a simple delete by scanning all rows,
 	// evaluating WHERE clause, and removing matching rows
-	
+
 	// Get all data chunks
 	chunks, err := plan.Table.Scan()
 	if err != nil {
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
-	
+
 	// Get column definitions
 	columnDefs := plan.Table.GetColumns()
-	
+
 	// Create new chunks without deleted rows
 	newChunks := make([]*storage.DataChunk, 0)
 	deletedRows := 0
-	
+
 	// Get logical types from column definitions
 	types := make([]storage.LogicalType, len(columnDefs))
 	for i, col := range columnDefs {
 		types[i] = col.Type
 	}
-	
+
 	// Process each chunk
 	for _, chunk := range chunks {
 		// Create a new chunk for non-deleted rows
 		newChunk := storage.NewDataChunk(types, chunk.Capacity())
 		newRowIdx := 0
-		
+
 		for row := 0; row < chunk.Size(); row++ {
 			// Evaluate WHERE clause if present
 			shouldDelete := true
@@ -552,7 +585,7 @@ func (e *Executor) executeDelete(ctx context.Context, plan *DeletePlan) (*QueryR
 				}
 				shouldDelete = match
 			}
-			
+
 			if shouldDelete {
 				deletedRows++
 			} else {
@@ -569,22 +602,22 @@ func (e *Executor) executeDelete(ctx context.Context, plan *DeletePlan) (*QueryR
 				newRowIdx++
 			}
 		}
-		
+
 		if newRowIdx > 0 {
 			_ = newChunk.SetSize(newRowIdx) // Size setting errors are not critical here
 			newChunks = append(newChunks, newChunk)
 		}
 	}
-	
+
 	// Update table data with new chunks
 	if err := plan.Table.ReplaceChunks(newChunks); err != nil {
 		return nil, fmt.Errorf("failed to update table: %w", err)
 	}
-	
+
 	// Return result with row count
 	return &QueryResult{
-		chunks:  []*storage.DataChunk{},
-		columns: []Column{},
+		chunks:       []*storage.DataChunk{},
+		columns:      []Column{},
 		rowsAffected: int64(deletedRows),
 	}, nil
 }
@@ -596,7 +629,7 @@ func (e *Executor) executeDropTable(ctx context.Context, plan *DropTablePlan) (*
 	if err != nil {
 		return nil, fmt.Errorf("drop table failed: %w", err)
 	}
-	
+
 	// Return empty result
 	return &QueryResult{
 		chunks:  []*storage.DataChunk{},
@@ -611,23 +644,23 @@ func evaluateWhereClause(where Expression, chunk *storage.DataChunk, row int, co
 	for i, col := range columnDefs {
 		columnNames[i] = col.Name
 	}
-	
+
 	// Create evaluation context
 	ctx := &EvaluationContext{
 		columnNames: columnNames,
 	}
-	
+
 	// Evaluate the expression
 	result, err := evaluateExpressionWithContext(where, chunk, row, ctx)
 	if err != nil {
 		return false, err
 	}
-	
+
 	// Convert result to boolean
 	if result == nil {
 		return false, nil // NULL is treated as false
 	}
-	
+
 	switch v := result.(type) {
 	case bool:
 		return v, nil
@@ -649,26 +682,26 @@ func (e *Executor) executeJoin(ctx context.Context, plan *JoinPlan) (*QueryResul
 	if err != nil {
 		return nil, fmt.Errorf("join left child failed: %w", err)
 	}
-	
+
 	rightResult, err := e.Execute(ctx, plan.Right)
 	if err != nil {
 		return nil, fmt.Errorf("join right child failed: %w", err)
 	}
-	
+
 	// Build output schema (left columns + right columns)
 	leftColumns := leftResult.columns
 	rightColumns := rightResult.columns
 	outputColumns := make([]Column, 0, len(leftColumns)+len(rightColumns))
 	outputColumns = append(outputColumns, leftColumns...)
 	outputColumns = append(outputColumns, rightColumns...)
-	
+
 	// Check if this is an equi-join that can use hash join
 	if plan.Condition != nil && (plan.JoinType == InnerJoin || plan.JoinType == LeftJoin) {
 		if equiJoinKeys := e.extractEquiJoinKeys(plan.Condition, leftColumns, rightColumns); equiJoinKeys != nil {
 			return e.executeHashJoin(ctx, plan, leftResult, rightResult, equiJoinKeys, outputColumns)
 		}
 	}
-	
+
 	// Fall back to nested loop join for non-equi joins or other join types
 	return e.executeNestedLoopJoin(ctx, plan, leftResult, rightResult, outputColumns)
 }
@@ -678,7 +711,7 @@ func (e *Executor) evaluateJoinCondition(condition Expression, leftChunk *storag
 	if condition == nil {
 		return true, nil // No condition = cross join
 	}
-	
+
 	// Create a combined evaluation context
 	combinedColumns := make([]string, 0, len(leftColumns)+len(rightColumns))
 	for _, col := range leftColumns {
@@ -687,7 +720,7 @@ func (e *Executor) evaluateJoinCondition(condition Expression, leftChunk *storag
 	for _, col := range rightColumns {
 		combinedColumns = append(combinedColumns, col.Name)
 	}
-	
+
 	// Create a combined chunk for evaluation
 	combinedSchema := make([]storage.LogicalType, len(combinedColumns))
 	for i, col := range leftColumns {
@@ -696,9 +729,9 @@ func (e *Executor) evaluateJoinCondition(condition Expression, leftChunk *storag
 	for i, col := range rightColumns {
 		combinedSchema[len(leftColumns)+i] = col.Type
 	}
-	
+
 	combinedChunk := storage.NewDataChunk(combinedSchema, 1)
-	
+
 	// Copy left values
 	for i := 0; i < leftChunk.ColumnCount(); i++ {
 		val, err := leftChunk.GetValue(i, leftRow)
@@ -709,7 +742,7 @@ func (e *Executor) evaluateJoinCondition(condition Expression, leftChunk *storag
 			return false, err
 		}
 	}
-	
+
 	// Copy right values
 	for i := 0; i < rightChunk.ColumnCount(); i++ {
 		val, err := rightChunk.GetValue(i, rightRow)
@@ -720,24 +753,24 @@ func (e *Executor) evaluateJoinCondition(condition Expression, leftChunk *storag
 			return false, err
 		}
 	}
-	
+
 	_ = combinedChunk.SetSize(1) // Size setting errors are not critical here
-	
+
 	// Evaluate condition with combined context
 	ctx := &EvaluationContext{
 		columnNames: combinedColumns,
 	}
-	
+
 	result, err := evaluateExpressionWithContext(condition, combinedChunk, 0, ctx)
 	if err != nil {
 		return false, err
 	}
-	
+
 	// Convert to boolean
 	if result == nil {
 		return false, nil
 	}
-	
+
 	switch v := result.(type) {
 	case bool:
 		return v, nil
@@ -752,18 +785,17 @@ func (e *Executor) evaluateJoinCondition(condition Expression, leftChunk *storag
 	}
 }
 
-
 // collectAllChunks collects all data chunks from a query result
 func collectAllChunks(result *QueryResult) ([]*storage.DataChunk, error) {
 	var chunks []*storage.DataChunk
-	
+
 	for result.Next() {
 		chunk := result.GetChunk()
 		if chunk != nil {
 			chunks = append(chunks, chunk)
 		}
 	}
-	
+
 	return chunks, nil
 }
 
@@ -781,7 +813,7 @@ func (e *Executor) extractEquiJoinKeys(condition Expression, leftColumns, rightC
 			// Check if it's column = column
 			leftColExpr, leftOk := expr.Left.(*ColumnExpr)
 			rightColExpr, rightOk := expr.Right.(*ColumnExpr)
-			
+
 			if leftOk && rightOk {
 				// Helper to extract column name without table prefix
 				extractColumnName := func(fullName string) string {
@@ -795,14 +827,14 @@ func (e *Executor) extractEquiJoinKeys(condition Expression, leftColumns, rightC
 					}
 					return fullName
 				}
-				
+
 				leftColName := extractColumnName(leftColExpr.Column)
 				rightColName := extractColumnName(rightColExpr.Column)
-				
+
 				// Find column indices
 				leftIdx := -1
 				rightIdx := -1
-				
+
 				// First try: left expr maps to left columns, right expr maps to right columns
 				for i, col := range leftColumns {
 					if col.Name == leftColName || col.Name == leftColExpr.Column {
@@ -810,37 +842,37 @@ func (e *Executor) extractEquiJoinKeys(condition Expression, leftColumns, rightC
 						break
 					}
 				}
-				
+
 				for i, col := range rightColumns {
 					if col.Name == rightColName || col.Name == rightColExpr.Column {
 						rightIdx = i
 						break
 					}
 				}
-				
+
 				// Check if we found both columns in the correct tables
 				if leftIdx >= 0 && rightIdx >= 0 {
 					return []equiJoinKey{{leftCol: leftIdx, rightCol: rightIdx}}
 				}
-				
+
 				// Try the other way around
 				leftIdx = -1
 				rightIdx = -1
-				
+
 				for i, col := range leftColumns {
 					if col.Name == rightColName || col.Name == rightColExpr.Column {
 						leftIdx = i
 						break
 					}
 				}
-				
+
 				for i, col := range rightColumns {
 					if col.Name == leftColName || col.Name == leftColExpr.Column {
 						rightIdx = i
 						break
 					}
 				}
-				
+
 				if leftIdx >= 0 && rightIdx >= 0 {
 					return []equiJoinKey{{leftCol: leftIdx, rightCol: rightIdx}}
 				}
@@ -849,7 +881,7 @@ func (e *Executor) extractEquiJoinKeys(condition Expression, leftColumns, rightC
 			// For AND, extract keys from both sides
 			leftKeys := e.extractEquiJoinKeys(expr.Left, leftColumns, rightColumns)
 			rightKeys := e.extractEquiJoinKeys(expr.Right, leftColumns, rightColumns)
-			
+
 			if leftKeys != nil && rightKeys != nil {
 				return append(leftKeys, rightKeys...)
 			} else if leftKeys != nil {
@@ -859,7 +891,7 @@ func (e *Executor) extractEquiJoinKeys(condition Expression, leftColumns, rightC
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -874,7 +906,7 @@ func hashJoinValue(val interface{}) string {
 	if val == nil {
 		return "NULL"
 	}
-	
+
 	switch v := val.(type) {
 	case int32:
 		return strconv.FormatInt(int64(v), 10)
@@ -905,10 +937,10 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 	if err != nil {
 		return nil, fmt.Errorf("collecting right chunks: %w", err)
 	}
-	
+
 	// Build hash table from right side
 	hashTable := make(map[string][]hashJoinEntry)
-	
+
 	for _, chunk := range rightChunks {
 		for row := 0; row < chunk.Size(); row++ {
 			// Build hash key from join columns
@@ -930,31 +962,31 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 				continue
 			}
 			hashKey := strings.Join(keyParts, "|") // More efficient key generation
-			
+
 			hashTable[hashKey] = append(hashTable[hashKey], hashJoinEntry{
 				chunk: chunk,
 				row:   row,
 			})
 		}
 	}
-	
+
 	// Prepare output
 	outputSchema := make([]storage.LogicalType, len(outputColumns))
 	for i, col := range outputColumns {
 		outputSchema[i] = col.Type
 	}
-	
+
 	var resultChunks []*storage.DataChunk
 	const chunkSize = 1000
 	var currentChunk *storage.DataChunk
 	currentSize := 0
-	
+
 	// Probe phase: scan left side and probe hash table
 	leftResult.current = -1 // Reset to start
-	
+
 	for leftResult.Next() {
 		leftChunk := leftResult.GetChunk()
-		
+
 		for leftRow := 0; leftRow < leftChunk.Size(); leftRow++ {
 			// Build hash key from left side
 			keyParts := make([]string, len(joinKeys))
@@ -971,53 +1003,53 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 				}
 				keyParts[i] = hashJoinValue(val)
 			}
-			
+
 			hasMatch := false
 			hashKey := ""
-			
+
 			if !skipRow {
 				hashKey = strings.Join(keyParts, "|")
 				// Probe hash table
 				if entries, found := hashTable[hashKey]; found {
 					hasMatch = true
 					for _, entry := range entries {
-					// Create new chunk if needed
-					if currentChunk == nil || currentSize >= chunkSize {
-						if currentChunk != nil {
-							_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
-							resultChunks = append(resultChunks, currentChunk)
+						// Create new chunk if needed
+						if currentChunk == nil || currentSize >= chunkSize {
+							if currentChunk != nil {
+								_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
+								resultChunks = append(resultChunks, currentChunk)
+							}
+							currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
+							currentSize = 0
 						}
-						currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
-						currentSize = 0
+
+						// Copy left columns
+						for col := 0; col < leftChunk.ColumnCount(); col++ {
+							val, err := leftChunk.GetValue(col, leftRow)
+							if err != nil {
+								return nil, err
+							}
+							if err := currentChunk.SetValue(col, currentSize, val); err != nil {
+								return nil, err
+							}
+						}
+
+						// Copy right columns
+						for col := 0; col < entry.chunk.ColumnCount(); col++ {
+							val, err := entry.chunk.GetValue(col, entry.row)
+							if err != nil {
+								return nil, err
+							}
+							if err := currentChunk.SetValue(leftChunk.ColumnCount()+col, currentSize, val); err != nil {
+								return nil, err
+							}
+						}
+
+						currentSize++
 					}
-					
-					// Copy left columns
-					for col := 0; col < leftChunk.ColumnCount(); col++ {
-						val, err := leftChunk.GetValue(col, leftRow)
-						if err != nil {
-							return nil, err
-						}
-						if err := currentChunk.SetValue(col, currentSize, val); err != nil {
-							return nil, err
-						}
-					}
-					
-					// Copy right columns
-					for col := 0; col < entry.chunk.ColumnCount(); col++ {
-						val, err := entry.chunk.GetValue(col, entry.row)
-						if err != nil {
-							return nil, err
-						}
-						if err := currentChunk.SetValue(leftChunk.ColumnCount()+col, currentSize, val); err != nil {
-							return nil, err
-						}
-					}
-					
-					currentSize++
 				}
 			}
-				}
-			
+
 			// For LEFT JOIN, if no match found, output left row with NULL right columns
 			if plan.JoinType == LeftJoin && !hasMatch {
 				// Create new chunk if needed
@@ -1029,7 +1061,7 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 					currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
 					currentSize = 0
 				}
-				
+
 				// Copy left columns
 				for col := 0; col < leftChunk.ColumnCount(); col++ {
 					val, err := leftChunk.GetValue(col, leftRow)
@@ -1040,7 +1072,7 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 						return nil, err
 					}
 				}
-				
+
 				// Set right columns to NULL
 				rightColumnCount := len(outputColumns) - leftChunk.ColumnCount()
 				for col := 0; col < rightColumnCount; col++ {
@@ -1048,18 +1080,18 @@ func (e *Executor) executeHashJoin(ctx context.Context, plan *JoinPlan, leftResu
 						return nil, err
 					}
 				}
-				
+
 				currentSize++
 			}
 		}
 	}
-	
+
 	// Add final chunk if it has data
 	if currentChunk != nil && currentSize > 0 {
 		_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 		resultChunks = append(resultChunks, currentChunk)
 	}
-	
+
 	return &QueryResult{
 		chunks:  resultChunks,
 		columns: outputColumns,
@@ -1074,29 +1106,29 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 	if err != nil {
 		return nil, fmt.Errorf("collecting left chunks: %w", err)
 	}
-	
+
 	rightChunks, err := collectAllChunks(rightResult)
 	if err != nil {
 		return nil, fmt.Errorf("collecting right chunks: %w", err)
 	}
-	
+
 	// Build output schema
 	outputSchema := make([]storage.LogicalType, len(outputColumns))
 	for i, col := range outputColumns {
 		outputSchema[i] = col.Type
 	}
-	
+
 	leftColumns := leftResult.columns
 	rightColumns := rightResult.columns
-	
+
 	// Perform nested loop join
 	var resultChunks []*storage.DataChunk
 	const chunkSize = 1000
-	
+
 	// Create current output chunk
 	var currentChunk *storage.DataChunk
 	currentSize := 0
-	
+
 	// For each left row
 	for _, leftChunk := range leftChunks {
 		for leftRow := 0; leftRow < leftChunk.Size(); leftRow++ {
@@ -1108,7 +1140,7 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 					if err != nil {
 						return nil, fmt.Errorf("join condition evaluation: %w", err)
 					}
-					
+
 					// If condition matches (or no condition for cross join)
 					if matches || plan.Condition == nil {
 						// Create new chunk if needed
@@ -1120,7 +1152,7 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 							currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
 							currentSize = 0
 						}
-						
+
 						// Copy left columns
 						for col := 0; col < leftChunk.ColumnCount(); col++ {
 							val, err := leftChunk.GetValue(col, leftRow)
@@ -1131,7 +1163,7 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 								return nil, err
 							}
 						}
-						
+
 						// Copy right columns
 						for col := 0; col < rightChunk.ColumnCount(); col++ {
 							val, err := rightChunk.GetValue(col, rightRow)
@@ -1142,12 +1174,12 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 								return nil, err
 							}
 						}
-						
+
 						currentSize++
 					}
 				}
 			}
-			
+
 			// For LEFT JOIN, if no matches found, add row with NULLs for right side
 			if plan.JoinType == LeftJoin {
 				hasMatch := false
@@ -1166,7 +1198,7 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 						break
 					}
 				}
-				
+
 				if !hasMatch {
 					// Add left row with NULL right columns
 					if currentChunk == nil || currentSize >= chunkSize {
@@ -1177,7 +1209,7 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 						currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
 						currentSize = 0
 					}
-					
+
 					// Copy left columns
 					for col := 0; col < leftChunk.ColumnCount(); col++ {
 						val, err := leftChunk.GetValue(col, leftRow)
@@ -1188,26 +1220,26 @@ func (e *Executor) executeNestedLoopJoin(ctx context.Context, plan *JoinPlan, le
 							return nil, err
 						}
 					}
-					
+
 					// Set right columns to NULL
 					for col := 0; col < len(rightColumns); col++ {
 						if err := currentChunk.SetValue(leftChunk.ColumnCount()+col, currentSize, nil); err != nil {
 							return nil, err
 						}
 					}
-					
+
 					currentSize++
 				}
 			}
 		}
 	}
-	
+
 	// Add final chunk if it has data
 	if currentChunk != nil && currentSize > 0 {
 		_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 		resultChunks = append(resultChunks, currentChunk)
 	}
-	
+
 	return &QueryResult{
 		chunks:  resultChunks,
 		columns: outputColumns,
@@ -1223,36 +1255,36 @@ func (e *Executor) executeUnion(ctx context.Context, plan *UnionPlan) (*QueryRes
 		return nil, fmt.Errorf("union left side failed: %w", err)
 	}
 	defer func() { _ = leftResult.Close() }() // Closing errors not critical in defer
-	
+
 	// Execute right side
 	rightResult, err := e.Execute(ctx, plan.Right)
 	if err != nil {
 		return nil, fmt.Errorf("union right side failed: %w", err)
 	}
 	defer func() { _ = rightResult.Close() }() // Closing errors not critical in defer
-	
+
 	// Validate schemas match
 	if len(leftResult.columns) != len(rightResult.columns) {
-		return nil, fmt.Errorf("UNION requires equal number of columns: left has %d, right has %d", 
+		return nil, fmt.Errorf("UNION requires equal number of columns: left has %d, right has %d",
 			len(leftResult.columns), len(rightResult.columns))
 	}
-	
+
 	// For now, we'll use the left side's column metadata
 	// In a full implementation, we'd validate type compatibility
 	outputColumns := leftResult.columns
-	
+
 	// Create a unified schema for output
 	outputSchema := make([]storage.LogicalType, len(outputColumns))
 	for i, col := range outputColumns {
 		outputSchema[i] = col.Type
 	}
-	
+
 	// Collect all data and normalize to the output schema
 	var allChunks []*storage.DataChunk
 	const chunkSize = 1000
 	var currentChunk *storage.DataChunk
 	currentSize := 0
-	
+
 	// Collect left chunks
 	leftResult.current = -1
 	for leftResult.Next() {
@@ -1269,7 +1301,7 @@ func (e *Executor) executeUnion(ctx context.Context, plan *UnionPlan) (*QueryRes
 					currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
 					currentSize = 0
 				}
-				
+
 				// Copy row data with type conversion if needed
 				for col := 0; col < sourceChunk.ColumnCount() && col < len(outputSchema); col++ {
 					val, err := sourceChunk.GetValue(col, row)
@@ -1284,7 +1316,7 @@ func (e *Executor) executeUnion(ctx context.Context, plan *UnionPlan) (*QueryRes
 			}
 		}
 	}
-	
+
 	// Collect right chunks
 	rightResult.current = -1
 	for rightResult.Next() {
@@ -1301,7 +1333,7 @@ func (e *Executor) executeUnion(ctx context.Context, plan *UnionPlan) (*QueryRes
 					currentChunk = storage.NewDataChunk(outputSchema, chunkSize)
 					currentSize = 0
 				}
-				
+
 				// Copy row data with type conversion if needed
 				for col := 0; col < sourceChunk.ColumnCount() && col < len(outputSchema); col++ {
 					val, err := sourceChunk.GetValue(col, row)
@@ -1316,22 +1348,22 @@ func (e *Executor) executeUnion(ctx context.Context, plan *UnionPlan) (*QueryRes
 			}
 		}
 	}
-	
+
 	// Add final chunk if it has data
 	if currentChunk != nil && currentSize > 0 {
 		_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 		allChunks = append(allChunks, currentChunk)
 	}
-	
+
 	// For UNION (not UNION ALL), we need to remove duplicates
 	if !plan.UnionAll {
 		allChunks = e.removeDuplicateRows(allChunks, outputColumns)
 	}
-	
+
 	// Transfer ownership of chunks to prevent cleanup
 	leftResult.chunks = nil
 	rightResult.chunks = nil
-	
+
 	return &QueryResult{
 		chunks:  allChunks,
 		columns: outputColumns,
@@ -1344,22 +1376,22 @@ func (e *Executor) removeDuplicateRows(chunks []*storage.DataChunk, columns []Co
 	if len(chunks) == 0 {
 		return chunks
 	}
-	
+
 	// For simplicity, we'll use a hash set approach
 	// In production, this would need to handle large datasets efficiently
 	seen := make(map[string]bool)
-	
+
 	// Create schema for new chunks
 	schema := make([]storage.LogicalType, len(columns))
 	for i, col := range columns {
 		schema[i] = col.Type
 	}
-	
+
 	var resultChunks []*storage.DataChunk
 	const chunkSize = 1000
 	var currentChunk *storage.DataChunk
 	currentSize := 0
-	
+
 	for _, chunk := range chunks {
 		for row := 0; row < chunk.Size(); row++ {
 			// Create row hash
@@ -1376,11 +1408,11 @@ func (e *Executor) removeDuplicateRows(chunks []*storage.DataChunk, columns []Co
 				}
 				rowKey += "|" // Column separator
 			}
-			
+
 			// Check if we've seen this row
 			if !seen[rowKey] {
 				seen[rowKey] = true
-				
+
 				// Create new chunk if needed
 				if currentChunk == nil || currentSize >= chunkSize {
 					if currentChunk != nil {
@@ -1390,7 +1422,7 @@ func (e *Executor) removeDuplicateRows(chunks []*storage.DataChunk, columns []Co
 					currentChunk = storage.NewDataChunk(schema, chunkSize)
 					currentSize = 0
 				}
-				
+
 				// Copy row to result
 				for col := 0; col < chunk.ColumnCount(); col++ {
 					val, err := chunk.GetValue(col, row)
@@ -1403,13 +1435,13 @@ func (e *Executor) removeDuplicateRows(chunks []*storage.DataChunk, columns []Co
 			}
 		}
 	}
-	
+
 	// Add final chunk if it has data
 	if currentChunk != nil && currentSize > 0 {
 		_ = currentChunk.SetSize(currentSize) // Size setting errors are not critical here
 		resultChunks = append(resultChunks, currentChunk)
 	}
-	
+
 	return resultChunks
 }
 
@@ -1420,6 +1452,59 @@ func (e *Executor) executeSubquery(ctx context.Context, plan *SubqueryPlan) (*Qu
 	if err != nil {
 		return nil, fmt.Errorf("subquery execution failed: %w", err)
 	}
-	
+
 	return result, nil
+}
+
+// evaluateConstantValue recursively evaluates function calls within constant values like struct literals
+func evaluateConstantValue(value interface{}) (interface{}, error) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		// Recursively evaluate values in the map (struct fields)
+		result := make(map[string]interface{})
+		for key, val := range v {
+			if strVal, ok := val.(string); ok {
+				// Check if this string looks like a function call
+				if strings.Contains(strVal, "(") && strings.Contains(strVal, ")") {
+					// Try to parse and evaluate as a function expression
+					if funcExpr := parseFunctionExpression(strVal); funcExpr != nil {
+						evaluatedVal, err := evaluateExpressionWithContext(funcExpr, nil, 0, &EvaluationContext{})
+						if err != nil {
+							// If evaluation fails, keep the original string value
+							result[key] = strVal
+						} else {
+							// The evaluated value should be properly typed (e.g., *types.MapAny)
+							result[key] = evaluatedVal
+						}
+					} else {
+						result[key] = strVal
+					}
+				} else {
+					result[key] = strVal
+				}
+			} else {
+				// Recursively evaluate non-string values
+				evaluatedVal, err := evaluateConstantValue(val)
+				if err != nil {
+					return nil, err
+				}
+				result[key] = evaluatedVal
+			}
+		}
+		return result, nil
+	case []interface{}:
+		// Recursively evaluate array elements
+		result := make([]interface{}, len(v))
+		for i, val := range v {
+			evaluatedVal, err := evaluateConstantValue(val)
+			if err != nil {
+				return nil, err
+			}
+			result[i] = evaluatedVal
+		}
+		return result, nil
+	default:
+		// For non-composite types, return as is
+		return value, nil
+	}
 }

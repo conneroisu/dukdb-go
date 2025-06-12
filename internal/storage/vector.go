@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 	"unsafe"
+
+	"github.com/connerohnesorge/dukdb-go/internal/types"
 )
 
 // VectorFormat represents different vector storage formats
@@ -110,7 +112,6 @@ type Vector struct {
 
 	// Data storage - varies by format
 	data      unsafe.Pointer
-	auxiliary unsafe.Pointer // For dictionary indices, string heap, etc.
 	validity  *ValidityMask
 }
 
@@ -172,6 +173,10 @@ func NewFlatVector(logicalType LogicalType, size int) *Vector {
 		// For timestamp, store as int64 (microseconds since epoch)
 		data := make([]int64, size)
 		v.data = unsafe.Pointer(&data)
+	case TypeUUID, TypeList, TypeStruct, TypeMap:
+		// For complex types, store as string (JSON or string representation)
+		data := make([]string, size)
+		v.data = unsafe.Pointer(&data)
 	default:
 		// Default to byte array
 		data := make([]byte, size)
@@ -229,6 +234,9 @@ func (v *Vector) getFlatValue(pos int) (interface{}, error) {
 		return (*(*[]int64)(v.data))[pos], nil
 	case TypeTimestamp:
 		return (*(*[]int64)(v.data))[pos], nil
+	case TypeUUID, TypeList, TypeStruct, TypeMap:
+		// Complex types are stored as strings, return the string value
+		return (*(*[]string)(v.data))[pos], nil
 	default:
 		return nil, fmt.Errorf("unsupported type for GetValue: %v", v.logicalType.ID)
 	}
@@ -287,6 +295,13 @@ func (v *Vector) setFlatValue(pos int, value interface{}) error {
 			// Try to convert from int
 			if intVal, ok := value.(int); ok {
 				val = int32(intVal)
+			} else if floatVal, ok := value.(float64); ok {
+				// Convert float64 to int32 if it's a whole number
+				if floatVal == float64(int32(floatVal)) {
+					val = int32(floatVal)
+				} else {
+					return fmt.Errorf("float64 value %g cannot be converted to int32", floatVal)
+				}
 			} else {
 				return fmt.Errorf("expected int32, got %T", value)
 			}
@@ -316,8 +331,28 @@ func (v *Vector) setFlatValue(pos int, value interface{}) error {
 		}
 		(*(*[]float64)(v.data))[pos] = val
 	case TypeVarchar:
-		val, ok := value.(string)
-		if !ok {
+		var val string
+		switch v := value.(type) {
+		case string:
+			val = v
+		case int32:
+			val = fmt.Sprintf("%d", v)
+		case int64:
+			val = fmt.Sprintf("%d", v)
+		case float64:
+			// Convert float64 to string, but handle integers properly
+			if v == float64(int64(v)) {
+				val = fmt.Sprintf("%.0f", v)
+			} else {
+				val = fmt.Sprintf("%g", v)
+			}
+		case bool:
+			if v {
+				val = "true"
+			} else {
+				val = "false"
+			}
+		default:
 			return fmt.Errorf("expected string, got %T (value: %v)", value, value)
 		}
 		(*(*[]string)(v.data))[pos] = val
@@ -354,6 +389,83 @@ func (v *Vector) setFlatValue(pos int, value interface{}) error {
 			(*(*[]int64)(v.data))[pos] = val.UnixMicro()
 		default:
 			return fmt.Errorf("expected int64 or time.Time for timestamp, got %T", value)
+		}
+	case TypeUUID:
+		// Accept UUID object or string representation
+		switch val := value.(type) {
+		case *types.UUID:
+			(*(*[]string)(v.data))[pos] = val.String()
+		case string:
+			(*(*[]string)(v.data))[pos] = val
+		default:
+			return fmt.Errorf("expected UUID or string for UUID type, got %T", value)
+		}
+	case TypeList:
+		// Accept List object, []interface{}, or JSON string
+		switch val := value.(type) {
+		case *types.ListAny:
+			jsonBytes, err := val.MarshalJSON()
+			if err != nil {
+				return fmt.Errorf("failed to marshal List to JSON: %w", err)
+			}
+			(*(*[]string)(v.data))[pos] = string(jsonBytes)
+		case []interface{}:
+			// Convert []interface{} to ListAny and marshal
+			list, err := types.NewListAny(val)
+			if err != nil {
+				return fmt.Errorf("failed to create List from []interface{}: %w", err)
+			}
+			jsonBytes, err := list.MarshalJSON()
+			if err != nil {
+				return fmt.Errorf("failed to marshal List to JSON: %w", err)
+			}
+			(*(*[]string)(v.data))[pos] = string(jsonBytes)
+		case string:
+			// Assume it's already JSON
+			(*(*[]string)(v.data))[pos] = val
+		default:
+			return fmt.Errorf("expected List, []interface{}, or string for List type, got %T", value)
+		}
+	case TypeStruct:
+		// Accept Struct object, map[string]interface{}, or JSON string
+		switch val := value.(type) {
+		case *types.Struct:
+			jsonBytes, err := val.MarshalJSON()
+			if err != nil {
+				return fmt.Errorf("failed to marshal Struct to JSON: %w", err)
+			}
+			(*(*[]string)(v.data))[pos] = string(jsonBytes)
+		case map[string]interface{}:
+			// Convert map[string]interface{} to Struct and marshal
+			structVal, err := types.NewStructFromMap(val)
+			if err != nil {
+				return fmt.Errorf("failed to create Struct from map: %w", err)
+			}
+			jsonBytes, err := structVal.MarshalJSON()
+			if err != nil {
+				return fmt.Errorf("failed to marshal Struct to JSON: %w", err)
+			}
+			(*(*[]string)(v.data))[pos] = string(jsonBytes)
+		case string:
+			// Assume it's already JSON
+			(*(*[]string)(v.data))[pos] = val
+		default:
+			return fmt.Errorf("expected Struct, map[string]interface{}, or string for Struct type, got %T", value)
+		}
+	case TypeMap:
+		// Accept Map object or JSON string
+		switch val := value.(type) {
+		case *types.MapAny:
+			jsonBytes, err := val.MarshalJSON()
+			if err != nil {
+				return fmt.Errorf("failed to marshal Map to JSON: %w", err)
+			}
+			(*(*[]string)(v.data))[pos] = string(jsonBytes)
+		case string:
+			// Assume it's already JSON
+			(*(*[]string)(v.data))[pos] = val
+		default:
+			return fmt.Errorf("expected Map or string for Map type, got %T", value)
 		}
 	default:
 		return fmt.Errorf("unsupported type for SetValue: %v", v.logicalType.ID)

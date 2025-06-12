@@ -129,6 +129,7 @@ func (s *Struct) Set(name string, value interface{}) error {
 		} else {
 			// Field not in schema - could be an error or allowed depending on strictness
 			// For now, we'll allow it but could add a strict mode later
+			_ = name // Explicitly acknowledge unused field name for now
 		}
 	}
 
@@ -229,4 +230,25 @@ func (s *Struct) Scan(value interface{}) error {
 	default:
 		return fmt.Errorf("cannot scan %T into Struct", value)
 	}
+}
+
+// MarshalJSON implements json.Marshaler
+func (s *Struct) MarshalJSON() ([]byte, error) {
+	if s == nil || s.fields == nil {
+		return []byte("null"), nil
+	}
+	return json.Marshal(s.fields)
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (s *Struct) UnmarshalJSON(data []byte) error {
+	if s == nil {
+		return fmt.Errorf("cannot unmarshal into nil Struct")
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+	*s = *newStructFromMapUnsafe(m)
+	return nil
 }

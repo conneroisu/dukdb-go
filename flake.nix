@@ -10,7 +10,7 @@
   outputs = { self, nixpkgs, flake-utils, treefmt-nix }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        pkgs = import nixpkgs { inherit system; config = { allowUnfree = true; }; };
 
         # Treefmt formatter configuration
         treefmtEval = treefmt-nix.lib.evalModule pkgs {
@@ -73,6 +73,7 @@
           ripgrep
           fd
           bat
+          coder
         ];
 
         # Shell hook to set up environment

@@ -106,6 +106,14 @@ func (u *UUID) Scan(value interface{}) error {
 			return nil
 		}
 		return fmt.Errorf("invalid UUID byte length: %d", len(v))
+	case *UUID:
+		if v != nil {
+			*u = *v
+		}
+		return nil
+	case UUID:
+		*u = v
+		return nil
 	default:
 		return fmt.Errorf("cannot scan %T into UUID", value)
 	}
