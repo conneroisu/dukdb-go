@@ -1,0 +1,3397 @@
+
+state 0
+	$accept: .statement $end 
+
+	SELECT  shift 8
+	INSERT  shift 9
+	UPDATE  shift 10
+	DELETE  shift 11
+	CREATE  shift 12
+	DROP  shift 13
+	.  error
+
+	statement  goto 1
+	select_stmt  goto 2
+	insert_stmt  goto 3
+	update_stmt  goto 4
+	delete_stmt  goto 5
+	create_table_stmt  goto 6
+	drop_table_stmt  goto 7
+
+state 1
+	$accept:  statement.$end 
+
+	$end  accept
+	.  error
+
+
+state 2
+	statement:  select_stmt.    (1)
+
+	.  reduce 1 (src line 117)
+
+
+state 3
+	statement:  insert_stmt.    (2)
+
+	.  reduce 2 (src line 119)
+
+
+state 4
+	statement:  update_stmt.    (3)
+
+	.  reduce 3 (src line 120)
+
+
+state 5
+	statement:  delete_stmt.    (4)
+
+	.  reduce 4 (src line 121)
+
+
+state 6
+	statement:  create_table_stmt.    (5)
+
+	.  reduce 5 (src line 122)
+
+
+state 7
+	statement:  drop_table_stmt.    (6)
+
+	.  reduce 6 (src line 123)
+
+
+state 8
+	select_stmt:  SELECT.distinct_clause select_list from_clause where_clause group_by_clause having_clause order_by_clause limit_clause offset_clause 
+	distinct_clause: .    (8)
+
+	DISTINCT  shift 15
+	ALL  shift 16
+	.  reduce 8 (src line 151)
+
+	distinct_clause  goto 14
+
+state 9
+	insert_stmt:  INSERT.INTO identifier LPAREN column_list RPAREN VALUES LPAREN expression_list RPAREN 
+	insert_stmt:  INSERT.INTO identifier VALUES LPAREN expression_list RPAREN 
+	insert_stmt:  INSERT.INTO identifier select_stmt 
+
+	INTO  shift 17
+	.  error
+
+
+state 10
+	update_stmt:  UPDATE.identifier SET assignment_list where_clause 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 18
+
+state 11
+	delete_stmt:  DELETE.FROM identifier where_clause 
+
+	FROM  shift 20
+	.  error
+
+
+state 12
+	create_table_stmt:  CREATE.TABLE identifier LPAREN column_def_list RPAREN 
+	create_table_stmt:  CREATE.TABLE IF NOT EXISTS identifier LPAREN column_def_list RPAREN 
+
+	TABLE  shift 21
+	.  error
+
+
+state 13
+	drop_table_stmt:  DROP.TABLE identifier 
+	drop_table_stmt:  DROP.TABLE IF EXISTS identifier 
+
+	TABLE  shift 22
+	.  error
+
+
+state 14
+	select_stmt:  SELECT distinct_clause.select_list from_clause where_clause group_by_clause having_clause order_by_clause limit_clause offset_clause 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	select_list  goto 23
+	select_item  goto 24
+	expression  goto 25
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 15
+	distinct_clause:  DISTINCT.    (9)
+
+	.  reduce 9 (src line 153)
+
+
+state 16
+	distinct_clause:  ALL.    (10)
+
+	.  reduce 10 (src line 154)
+
+
+state 17
+	insert_stmt:  INSERT INTO.identifier LPAREN column_list RPAREN VALUES LPAREN expression_list RPAREN 
+	insert_stmt:  INSERT INTO.identifier VALUES LPAREN expression_list RPAREN 
+	insert_stmt:  INSERT INTO.identifier select_stmt 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 52
+
+state 18
+	update_stmt:  UPDATE identifier.SET assignment_list where_clause 
+
+	SET  shift 53
+	.  error
+
+
+state 19
+	identifier:  IDENT.    (149)
+
+	.  reduce 149 (src line 574)
+
+
+state 20
+	delete_stmt:  DELETE FROM.identifier where_clause 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 54
+
+state 21
+	create_table_stmt:  CREATE TABLE.identifier LPAREN column_def_list RPAREN 
+	create_table_stmt:  CREATE TABLE.IF NOT EXISTS identifier LPAREN column_def_list RPAREN 
+
+	IDENT  shift 19
+	IF  shift 56
+	.  error
+
+	identifier  goto 55
+
+state 22
+	drop_table_stmt:  DROP TABLE.identifier 
+	drop_table_stmt:  DROP TABLE.IF EXISTS identifier 
+
+	IDENT  shift 19
+	IF  shift 58
+	.  error
+
+	identifier  goto 57
+
+state 23
+	select_stmt:  SELECT distinct_clause select_list.from_clause where_clause group_by_clause having_clause order_by_clause limit_clause offset_clause 
+	select_list:  select_list.COMMA select_item 
+	from_clause: .    (16)
+
+	COMMA  shift 60
+	FROM  shift 61
+	.  reduce 16 (src line 168)
+
+	from_clause  goto 59
+
+state 24
+	select_list:  select_item.    (11)
+
+	.  reduce 11 (src line 157)
+
+
+state 25
+	select_item:  expression.    (13)
+	select_item:  expression.AS identifier 
+	select_item:  expression.identifier 
+	binary_expr:  expression.binary_operator expression 
+
+	IDENT  shift 19
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	AS  shift 62
+	.  reduce 13 (src line 162)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+	identifier  goto 63
+
+state 26
+	expression:  primary_expr.    (58)
+
+	.  reduce 58 (src line 270)
+
+
+state 27
+	expression:  binary_expr.    (59)
+
+	.  reduce 59 (src line 272)
+
+
+state 28
+	expression:  unary_expr.    (60)
+
+	.  reduce 60 (src line 273)
+
+
+state 29
+	expression:  function_call.    (61)
+
+	.  reduce 61 (src line 274)
+
+
+state 30
+	expression:  subquery.    (62)
+
+	.  reduce 62 (src line 275)
+
+
+state 31
+	expression:  CASE.expression WHEN expression THEN expression ELSE expression END 
+	expression:  CASE.WHEN expression THEN expression ELSE expression END 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	WHEN  shift 88
+	.  error
+
+	expression  goto 87
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 32
+	primary_expr:  literal_expr.    (65)
+
+	.  reduce 65 (src line 297)
+
+
+state 33
+	primary_expr:  column_ref.    (66)
+
+	.  reduce 66 (src line 299)
+
+
+state 34
+	primary_expr:  LPAREN.expression RPAREN 
+	subquery:  LPAREN.select_stmt RPAREN 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	SELECT  shift 8
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	select_stmt  goto 90
+	expression  goto 89
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 35
+	primary_expr:  LBRACKET.expression_list RBRACKET 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 92
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	expression_list  goto 91
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 36
+	unary_expr:  unary_operator.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 93
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 37
+	column_ref:  identifier.    (101)
+	column_ref:  identifier.DOT identifier 
+	function_call:  identifier.LPAREN argument_list RPAREN 
+	function_call:  identifier.LPAREN RPAREN 
+
+	LPAREN  shift 95
+	DOT  shift 94
+	.  reduce 101 (src line 364)
+
+
+state 38
+	function_call:  COUNT.LPAREN MULTIPLY RPAREN 
+	function_call:  COUNT.LPAREN DISTINCT expression RPAREN 
+
+	LPAREN  shift 96
+	.  error
+
+
+state 39
+	literal_expr:  integer_literal.    (96)
+
+	.  reduce 96 (src line 356)
+
+
+state 40
+	literal_expr:  float_literal.    (97)
+
+	.  reduce 97 (src line 358)
+
+
+state 41
+	literal_expr:  string_literal.    (98)
+
+	.  reduce 98 (src line 359)
+
+
+state 42
+	literal_expr:  boolean_literal.    (99)
+
+	.  reduce 99 (src line 360)
+
+
+state 43
+	literal_expr:  NULL.    (100)
+
+	.  reduce 100 (src line 361)
+
+
+state 44
+	unary_operator:  NOT.    (93)
+
+	.  reduce 93 (src line 350)
+
+
+state 45
+	unary_operator:  MINUS.    (94)
+
+	.  reduce 94 (src line 352)
+
+
+state 46
+	unary_operator:  PLUS.    (95)
+
+	.  reduce 95 (src line 353)
+
+
+state 47
+	integer_literal:  INT.    (151)
+
+	.  reduce 151 (src line 582)
+
+
+state 48
+	float_literal:  FLOAT.    (152)
+
+	.  reduce 152 (src line 586)
+
+
+state 49
+	string_literal:  STRING.    (150)
+
+	.  reduce 150 (src line 578)
+
+
+state 50
+	boolean_literal:  TRUE.    (153)
+
+	.  reduce 153 (src line 590)
+
+
+state 51
+	boolean_literal:  FALSE.    (154)
+
+	.  reduce 154 (src line 592)
+
+
+state 52
+	insert_stmt:  INSERT INTO identifier.LPAREN column_list RPAREN VALUES LPAREN expression_list RPAREN 
+	insert_stmt:  INSERT INTO identifier.VALUES LPAREN expression_list RPAREN 
+	insert_stmt:  INSERT INTO identifier.select_stmt 
+
+	LPAREN  shift 97
+	SELECT  shift 8
+	VALUES  shift 98
+	.  error
+
+	select_stmt  goto 99
+
+state 53
+	update_stmt:  UPDATE identifier SET.assignment_list where_clause 
+
+	IDENT  shift 19
+	.  error
+
+	assignment_list  goto 100
+	identifier  goto 101
+
+state 54
+	delete_stmt:  DELETE FROM identifier.where_clause 
+	where_clause: .    (39)
+
+	WHERE  shift 103
+	.  reduce 39 (src line 223)
+
+	where_clause  goto 102
+
+state 55
+	create_table_stmt:  CREATE TABLE identifier.LPAREN column_def_list RPAREN 
+
+	LPAREN  shift 104
+	.  error
+
+
+state 56
+	create_table_stmt:  CREATE TABLE IF.NOT EXISTS identifier LPAREN column_def_list RPAREN 
+
+	NOT  shift 105
+	.  error
+
+
+state 57
+	drop_table_stmt:  DROP TABLE identifier.    (147)
+
+	.  reduce 147 (src line 562)
+
+
+state 58
+	drop_table_stmt:  DROP TABLE IF.EXISTS identifier 
+
+	EXISTS  shift 106
+	.  error
+
+
+state 59
+	select_stmt:  SELECT distinct_clause select_list from_clause.where_clause group_by_clause having_clause order_by_clause limit_clause offset_clause 
+	where_clause: .    (39)
+
+	WHERE  shift 103
+	.  reduce 39 (src line 223)
+
+	where_clause  goto 107
+
+state 60
+	select_list:  select_list COMMA.select_item 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	select_item  goto 108
+	expression  goto 25
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 61
+	from_clause:  FROM.table_list 
+
+	IDENT  shift 19
+	LPAREN  shift 113
+	.  error
+
+	table_list  goto 109
+	table_ref  goto 110
+	join_expr  goto 112
+	identifier  goto 111
+
+state 62
+	select_item:  expression AS.identifier 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 114
+
+state 63
+	select_item:  expression identifier.    (15)
+
+	.  reduce 15 (src line 165)
+
+
+state 64
+	binary_expr:  expression binary_operator.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 115
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 65
+	binary_operator:  arithmetic_operator.    (70)
+
+	.  reduce 70 (src line 312)
+
+
+state 66
+	binary_operator:  comparison_operator.    (71)
+
+	.  reduce 71 (src line 314)
+
+
+state 67
+	binary_operator:  logical_operator.    (72)
+
+	.  reduce 72 (src line 315)
+
+
+state 68
+	binary_operator:  CONCAT.    (73)
+
+	.  reduce 73 (src line 316)
+
+
+state 69
+	binary_operator:  LIKE.    (74)
+
+	.  reduce 74 (src line 317)
+
+
+state 70
+	binary_operator:  ILIKE.    (75)
+
+	.  reduce 75 (src line 318)
+
+
+state 71
+	binary_operator:  IN.    (76)
+
+	.  reduce 76 (src line 319)
+
+
+state 72
+	binary_operator:  IS.    (77)
+
+	.  reduce 77 (src line 320)
+
+
+state 73
+	arithmetic_operator:  PLUS.    (78)
+
+	.  reduce 78 (src line 323)
+
+
+state 74
+	arithmetic_operator:  MINUS.    (79)
+
+	.  reduce 79 (src line 325)
+
+
+state 75
+	arithmetic_operator:  MULTIPLY.    (80)
+
+	.  reduce 80 (src line 326)
+
+
+state 76
+	arithmetic_operator:  DIVIDE.    (81)
+
+	.  reduce 81 (src line 327)
+
+
+state 77
+	arithmetic_operator:  MODULO.    (82)
+
+	.  reduce 82 (src line 328)
+
+
+state 78
+	arithmetic_operator:  POWER.    (83)
+
+	.  reduce 83 (src line 329)
+
+
+state 79
+	comparison_operator:  EQ.    (84)
+
+	.  reduce 84 (src line 332)
+
+
+state 80
+	comparison_operator:  NEQ.    (85)
+
+	.  reduce 85 (src line 334)
+
+
+state 81
+	comparison_operator:  LT.    (86)
+
+	.  reduce 86 (src line 335)
+
+
+state 82
+	comparison_operator:  LE.    (87)
+
+	.  reduce 87 (src line 336)
+
+
+state 83
+	comparison_operator:  GT.    (88)
+
+	.  reduce 88 (src line 337)
+
+
+state 84
+	comparison_operator:  GE.    (89)
+
+	.  reduce 89 (src line 338)
+
+
+state 85
+	logical_operator:  AND.    (90)
+
+	.  reduce 90 (src line 341)
+
+
+state 86
+	logical_operator:  OR.    (91)
+
+	.  reduce 91 (src line 343)
+
+
+state 87
+	expression:  CASE expression.WHEN expression THEN expression ELSE expression END 
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	WHEN  shift 116
+	.  error
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 88
+	expression:  CASE WHEN.expression THEN expression ELSE expression END 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 117
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 89
+	primary_expr:  LPAREN expression.RPAREN 
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	RPAREN  shift 118
+	.  error
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 90
+	subquery:  LPAREN select_stmt.RPAREN 
+
+	RPAREN  shift 119
+	.  error
+
+
+state 91
+	expression_list:  expression_list.COMMA expression 
+	primary_expr:  LBRACKET expression_list.RBRACKET 
+
+	COMMA  shift 120
+	RBRACKET  shift 121
+	.  error
+
+
+state 92
+	expression_list:  expression.    (56)
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 56 (src line 265)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+93: shift/reduce conflict (shift 78(0), red'n 92(8)) on POWER
+93: shift/reduce conflict (shift 72(0), red'n 92(8)) on IS
+state 93
+	binary_expr:  expression.binary_operator expression 
+	unary_expr:  unary_operator expression.    (92)
+
+	POWER  shift 78
+	IS  shift 72
+	.  reduce 92 (src line 346)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 94
+	column_ref:  identifier DOT.identifier 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 122
+
+state 95
+	function_call:  identifier LPAREN.argument_list RPAREN 
+	function_call:  identifier LPAREN.RPAREN 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	RPAREN  shift 124
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 125
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	argument_list  goto 123
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 96
+	function_call:  COUNT LPAREN.MULTIPLY RPAREN 
+	function_call:  COUNT LPAREN.DISTINCT expression RPAREN 
+
+	MULTIPLY  shift 126
+	DISTINCT  shift 127
+	.  error
+
+
+state 97
+	insert_stmt:  INSERT INTO identifier LPAREN.column_list RPAREN VALUES LPAREN expression_list RPAREN 
+
+	IDENT  shift 19
+	.  error
+
+	column_list  goto 128
+	identifier  goto 129
+
+state 98
+	insert_stmt:  INSERT INTO identifier VALUES.LPAREN expression_list RPAREN 
+
+	LPAREN  shift 130
+	.  error
+
+
+state 99
+	insert_stmt:  INSERT INTO identifier select_stmt.    (112)
+
+	.  reduce 112 (src line 431)
+
+
+state 100
+	update_stmt:  UPDATE identifier SET assignment_list.where_clause 
+	assignment_list:  assignment_list.COMMA identifier EQ expression 
+	where_clause: .    (39)
+
+	COMMA  shift 132
+	WHERE  shift 103
+	.  reduce 39 (src line 223)
+
+	where_clause  goto 131
+
+state 101
+	assignment_list:  identifier.EQ expression 
+
+	EQ  shift 133
+	.  error
+
+
+state 102
+	delete_stmt:  DELETE FROM identifier where_clause.    (118)
+
+	.  reduce 118 (src line 469)
+
+
+state 103
+	where_clause:  WHERE.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 134
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 104
+	create_table_stmt:  CREATE TABLE identifier LPAREN.column_def_list RPAREN 
+
+	IDENT  shift 19
+	.  error
+
+	column_def_list  goto 135
+	column_def  goto 136
+	identifier  goto 137
+
+state 105
+	create_table_stmt:  CREATE TABLE IF NOT.EXISTS identifier LPAREN column_def_list RPAREN 
+
+	EXISTS  shift 138
+	.  error
+
+
+state 106
+	drop_table_stmt:  DROP TABLE IF EXISTS.identifier 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 139
+
+state 107
+	select_stmt:  SELECT distinct_clause select_list from_clause where_clause.group_by_clause having_clause order_by_clause limit_clause offset_clause 
+	group_by_clause: .    (41)
+
+	GROUP  shift 141
+	.  reduce 41 (src line 228)
+
+	group_by_clause  goto 140
+
+state 108
+	select_list:  select_list COMMA select_item.    (12)
+
+	.  reduce 12 (src line 159)
+
+
+state 109
+	from_clause:  FROM table_list.    (17)
+	table_list:  table_list.COMMA table_ref 
+
+	COMMA  shift 142
+	.  reduce 17 (src line 170)
+
+
+state 110
+	table_list:  table_ref.    (18)
+	join_expr:  table_ref.join_type table_ref ON expression 
+	join_expr:  table_ref.join_type table_ref 
+
+	JOIN  shift 144
+	INNER  shift 145
+	LEFT  shift 146
+	RIGHT  shift 147
+	FULL  shift 148
+	CROSS  shift 149
+	.  reduce 18 (src line 173)
+
+	join_type  goto 143
+
+state 111
+	table_ref:  identifier.    (20)
+	table_ref:  identifier.DOT identifier 
+	table_ref:  identifier.AS identifier 
+	table_ref:  identifier.identifier 
+	table_ref:  identifier.DOT identifier AS identifier 
+	table_ref:  identifier.DOT identifier identifier 
+
+	IDENT  shift 19
+	DOT  shift 150
+	AS  shift 151
+	.  reduce 20 (src line 178)
+
+	identifier  goto 152
+
+state 112
+	table_ref:  join_expr.    (26)
+
+	.  reduce 26 (src line 185)
+
+
+state 113
+	table_ref:  LPAREN.select_stmt RPAREN AS identifier 
+
+	SELECT  shift 8
+	.  error
+
+	select_stmt  goto 153
+
+state 114
+	select_item:  expression AS identifier.    (14)
+
+	.  reduce 14 (src line 164)
+
+
+115: shift/reduce conflict (shift 79(4), red'n 69(0)) on EQ
+115: shift/reduce conflict (shift 80(4), red'n 69(0)) on NEQ
+115: shift/reduce conflict (shift 81(4), red'n 69(0)) on LT
+115: shift/reduce conflict (shift 82(4), red'n 69(0)) on LE
+115: shift/reduce conflict (shift 83(4), red'n 69(0)) on GT
+115: shift/reduce conflict (shift 84(4), red'n 69(0)) on GE
+115: shift/reduce conflict (shift 73(6), red'n 69(0)) on PLUS
+115: shift/reduce conflict (shift 74(6), red'n 69(0)) on MINUS
+115: shift/reduce conflict (shift 75(7), red'n 69(0)) on MULTIPLY
+115: shift/reduce conflict (shift 76(7), red'n 69(0)) on DIVIDE
+115: shift/reduce conflict (shift 77(7), red'n 69(0)) on MODULO
+115: shift/reduce conflict (shift 78(0), red'n 69(0)) on POWER
+115: shift/reduce conflict (shift 85(2), red'n 69(0)) on AND
+115: shift/reduce conflict (shift 86(1), red'n 69(0)) on OR
+115: shift/reduce conflict (shift 68(6), red'n 69(0)) on CONCAT
+115: shift/reduce conflict (shift 69(5), red'n 69(0)) on LIKE
+115: shift/reduce conflict (shift 70(5), red'n 69(0)) on ILIKE
+115: shift/reduce conflict (shift 71(5), red'n 69(0)) on IN
+115: shift/reduce conflict (shift 72(0), red'n 69(0)) on IS
+state 115
+	binary_expr:  expression.binary_operator expression 
+	binary_expr:  expression binary_operator expression.    (69)
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 69 (src line 308)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 116
+	expression:  CASE expression WHEN.expression THEN expression ELSE expression END 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 154
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 117
+	expression:  CASE WHEN expression.THEN expression ELSE expression END 
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	THEN  shift 155
+	.  error
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 118
+	primary_expr:  LPAREN expression RPAREN.    (67)
+
+	.  reduce 67 (src line 300)
+
+
+state 119
+	subquery:  LPAREN select_stmt RPAREN.    (109)
+
+	.  reduce 109 (src line 410)
+
+
+state 120
+	expression_list:  expression_list COMMA.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 156
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 121
+	primary_expr:  LBRACKET expression_list RBRACKET.    (68)
+
+	.  reduce 68 (src line 301)
+
+
+state 122
+	column_ref:  identifier DOT identifier.    (102)
+
+	.  reduce 102 (src line 366)
+
+
+state 123
+	function_call:  identifier LPAREN argument_list.RPAREN 
+	argument_list:  argument_list.COMMA expression 
+
+	COMMA  shift 158
+	RPAREN  shift 157
+	.  error
+
+
+state 124
+	function_call:  identifier LPAREN RPAREN.    (104)
+
+	.  reduce 104 (src line 378)
+
+
+state 125
+	binary_expr:  expression.binary_operator expression 
+	argument_list:  expression.    (107)
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 107 (src line 405)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 126
+	function_call:  COUNT LPAREN MULTIPLY.RPAREN 
+
+	RPAREN  shift 159
+	.  error
+
+
+state 127
+	function_call:  COUNT LPAREN DISTINCT.expression RPAREN 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 160
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 128
+	insert_stmt:  INSERT INTO identifier LPAREN column_list.RPAREN VALUES LPAREN expression_list RPAREN 
+	column_list:  column_list.COMMA identifier 
+
+	COMMA  shift 162
+	RPAREN  shift 161
+	.  error
+
+
+state 129
+	column_list:  identifier.    (113)
+
+	.  reduce 113 (src line 440)
+
+
+state 130
+	insert_stmt:  INSERT INTO identifier VALUES LPAREN.expression_list RPAREN 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 92
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	expression_list  goto 163
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 131
+	update_stmt:  UPDATE identifier SET assignment_list where_clause.    (115)
+
+	.  reduce 115 (src line 446)
+
+
+state 132
+	assignment_list:  assignment_list COMMA.identifier EQ expression 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 164
+
+state 133
+	assignment_list:  identifier EQ.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 165
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 134
+	where_clause:  WHERE expression.    (40)
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 40 (src line 225)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 135
+	create_table_stmt:  CREATE TABLE identifier LPAREN column_def_list.RPAREN 
+	column_def_list:  column_def_list.COMMA column_def 
+
+	COMMA  shift 167
+	RPAREN  shift 166
+	.  error
+
+
+state 136
+	column_def_list:  column_def.    (121)
+
+	.  reduce 121 (src line 498)
+
+
+state 137
+	column_def:  identifier.data_type 
+	column_def:  identifier.data_type NOT NULL 
+	column_def:  identifier.data_type PRIMARY KEY 
+	column_def:  identifier.data_type DEFAULT expression 
+
+	FLOAT  shift 174
+	INTEGER  shift 169
+	BIGINT  shift 170
+	SMALLINT  shift 171
+	TINYINT  shift 172
+	BOOLEAN  shift 173
+	DOUBLE  shift 175
+	DECIMAL  shift 176
+	VARCHAR  shift 177
+	TEXT  shift 178
+	DATE  shift 179
+	TIME  shift 180
+	TIMESTAMP  shift 181
+	BLOB  shift 182
+	UUID  shift 183
+	LIST  shift 184
+	STRUCT  shift 185
+	MAP  shift 186
+	.  error
+
+	data_type  goto 168
+
+state 138
+	create_table_stmt:  CREATE TABLE IF NOT EXISTS.identifier LPAREN column_def_list RPAREN 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 187
+
+state 139
+	drop_table_stmt:  DROP TABLE IF EXISTS identifier.    (148)
+
+	.  reduce 148 (src line 567)
+
+
+state 140
+	select_stmt:  SELECT distinct_clause select_list from_clause where_clause group_by_clause.having_clause order_by_clause limit_clause offset_clause 
+	having_clause: .    (43)
+
+	HAVING  shift 189
+	.  reduce 43 (src line 233)
+
+	having_clause  goto 188
+
+state 141
+	group_by_clause:  GROUP.BY expression_list 
+
+	BY  shift 190
+	.  error
+
+
+state 142
+	table_list:  table_list COMMA.table_ref 
+
+	IDENT  shift 19
+	LPAREN  shift 113
+	.  error
+
+	table_ref  goto 191
+	join_expr  goto 112
+	identifier  goto 111
+
+state 143
+	join_expr:  table_ref join_type.table_ref ON expression 
+	join_expr:  table_ref join_type.table_ref 
+
+	IDENT  shift 19
+	LPAREN  shift 113
+	.  error
+
+	table_ref  goto 192
+	join_expr  goto 112
+	identifier  goto 111
+
+state 144
+	join_type:  JOIN.    (30)
+
+	.  reduce 30 (src line 211)
+
+
+state 145
+	join_type:  INNER.JOIN 
+
+	JOIN  shift 193
+	.  error
+
+
+state 146
+	join_type:  LEFT.JOIN 
+	join_type:  LEFT.OUTER JOIN 
+
+	JOIN  shift 194
+	OUTER  shift 195
+	.  error
+
+
+state 147
+	join_type:  RIGHT.JOIN 
+	join_type:  RIGHT.OUTER JOIN 
+
+	JOIN  shift 196
+	OUTER  shift 197
+	.  error
+
+
+state 148
+	join_type:  FULL.JOIN 
+	join_type:  FULL.OUTER JOIN 
+
+	JOIN  shift 198
+	OUTER  shift 199
+	.  error
+
+
+state 149
+	join_type:  CROSS.JOIN 
+
+	JOIN  shift 200
+	.  error
+
+
+state 150
+	table_ref:  identifier DOT.identifier 
+	table_ref:  identifier DOT.identifier AS identifier 
+	table_ref:  identifier DOT.identifier identifier 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 201
+
+state 151
+	table_ref:  identifier AS.identifier 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 202
+
+state 152
+	table_ref:  identifier identifier.    (23)
+
+	.  reduce 23 (src line 182)
+
+
+state 153
+	table_ref:  LPAREN select_stmt.RPAREN AS identifier 
+
+	RPAREN  shift 203
+	.  error
+
+
+state 154
+	expression:  CASE expression WHEN expression.THEN expression ELSE expression END 
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	THEN  shift 204
+	.  error
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 155
+	expression:  CASE WHEN expression THEN.expression ELSE expression END 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 205
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 156
+	expression_list:  expression_list COMMA expression.    (57)
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 57 (src line 267)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 157
+	function_call:  identifier LPAREN argument_list RPAREN.    (103)
+
+	.  reduce 103 (src line 369)
+
+
+state 158
+	argument_list:  argument_list COMMA.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 206
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 159
+	function_call:  COUNT LPAREN MULTIPLY RPAREN.    (105)
+
+	.  reduce 105 (src line 386)
+
+
+state 160
+	binary_expr:  expression.binary_operator expression 
+	function_call:  COUNT LPAREN DISTINCT expression.RPAREN 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	RPAREN  shift 207
+	.  error
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 161
+	insert_stmt:  INSERT INTO identifier LPAREN column_list RPAREN.VALUES LPAREN expression_list RPAREN 
+
+	VALUES  shift 208
+	.  error
+
+
+state 162
+	column_list:  column_list COMMA.identifier 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 209
+
+state 163
+	expression_list:  expression_list.COMMA expression 
+	insert_stmt:  INSERT INTO identifier VALUES LPAREN expression_list.RPAREN 
+
+	COMMA  shift 120
+	RPAREN  shift 210
+	.  error
+
+
+state 164
+	assignment_list:  assignment_list COMMA identifier.EQ expression 
+
+	EQ  shift 211
+	.  error
+
+
+state 165
+	binary_expr:  expression.binary_operator expression 
+	assignment_list:  identifier EQ expression.    (116)
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 116 (src line 457)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 166
+	create_table_stmt:  CREATE TABLE identifier LPAREN column_def_list RPAREN.    (119)
+
+	.  reduce 119 (src line 480)
+
+
+state 167
+	column_def_list:  column_def_list COMMA.column_def 
+
+	IDENT  shift 19
+	.  error
+
+	column_def  goto 212
+	identifier  goto 137
+
+state 168
+	column_def:  identifier data_type.    (123)
+	column_def:  identifier data_type.NOT NULL 
+	column_def:  identifier data_type.PRIMARY KEY 
+	column_def:  identifier data_type.DEFAULT expression 
+
+	NOT  shift 213
+	DEFAULT  shift 215
+	PRIMARY  shift 214
+	.  reduce 123 (src line 503)
+
+
+state 169
+	data_type:  INTEGER.    (127)
+
+	.  reduce 127 (src line 522)
+
+
+state 170
+	data_type:  BIGINT.    (128)
+
+	.  reduce 128 (src line 524)
+
+
+state 171
+	data_type:  SMALLINT.    (129)
+
+	.  reduce 129 (src line 525)
+
+
+state 172
+	data_type:  TINYINT.    (130)
+
+	.  reduce 130 (src line 526)
+
+
+state 173
+	data_type:  BOOLEAN.    (131)
+
+	.  reduce 131 (src line 527)
+
+
+state 174
+	data_type:  FLOAT.    (132)
+
+	.  reduce 132 (src line 528)
+
+
+state 175
+	data_type:  DOUBLE.    (133)
+
+	.  reduce 133 (src line 529)
+
+
+state 176
+	data_type:  DECIMAL.    (134)
+
+	.  reduce 134 (src line 530)
+
+
+state 177
+	data_type:  VARCHAR.    (135)
+
+	.  reduce 135 (src line 531)
+
+
+state 178
+	data_type:  TEXT.    (136)
+
+	.  reduce 136 (src line 532)
+
+
+state 179
+	data_type:  DATE.    (137)
+
+	.  reduce 137 (src line 533)
+
+
+state 180
+	data_type:  TIME.    (138)
+
+	.  reduce 138 (src line 534)
+
+
+state 181
+	data_type:  TIMESTAMP.    (139)
+
+	.  reduce 139 (src line 535)
+
+
+state 182
+	data_type:  BLOB.    (140)
+
+	.  reduce 140 (src line 536)
+
+
+state 183
+	data_type:  UUID.    (141)
+
+	.  reduce 141 (src line 537)
+
+
+state 184
+	data_type:  LIST.LT data_type GT 
+
+	LT  shift 216
+	.  error
+
+
+state 185
+	data_type:  STRUCT.LT identifier_list GT 
+
+	LT  shift 217
+	.  error
+
+
+state 186
+	data_type:  MAP.LT data_type COMMA data_type GT 
+
+	LT  shift 218
+	.  error
+
+
+state 187
+	create_table_stmt:  CREATE TABLE IF NOT EXISTS identifier.LPAREN column_def_list RPAREN 
+
+	LPAREN  shift 219
+	.  error
+
+
+state 188
+	select_stmt:  SELECT distinct_clause select_list from_clause where_clause group_by_clause having_clause.order_by_clause limit_clause offset_clause 
+	order_by_clause: .    (45)
+
+	ORDER  shift 221
+	.  reduce 45 (src line 238)
+
+	order_by_clause  goto 220
+
+state 189
+	having_clause:  HAVING.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 222
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 190
+	group_by_clause:  GROUP BY.expression_list 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 92
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	expression_list  goto 223
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 191
+	table_list:  table_list COMMA table_ref.    (19)
+	join_expr:  table_ref.join_type table_ref ON expression 
+	join_expr:  table_ref.join_type table_ref 
+
+	JOIN  shift 144
+	INNER  shift 145
+	LEFT  shift 146
+	RIGHT  shift 147
+	FULL  shift 148
+	CROSS  shift 149
+	.  reduce 19 (src line 175)
+
+	join_type  goto 143
+
+192: shift/reduce conflict (shift 144(0), red'n 29(0)) on JOIN
+192: shift/reduce conflict (shift 145(0), red'n 29(0)) on INNER
+192: shift/reduce conflict (shift 146(0), red'n 29(0)) on LEFT
+192: shift/reduce conflict (shift 147(0), red'n 29(0)) on RIGHT
+192: shift/reduce conflict (shift 148(0), red'n 29(0)) on FULL
+192: shift/reduce conflict (shift 149(0), red'n 29(0)) on CROSS
+192: shift/reduce conflict (shift 224(0), red'n 29(0)) on ON
+state 192
+	join_expr:  table_ref.join_type table_ref ON expression 
+	join_expr:  table_ref join_type table_ref.ON expression 
+	join_expr:  table_ref.join_type table_ref 
+	join_expr:  table_ref join_type table_ref.    (29)
+
+	JOIN  shift 144
+	INNER  shift 145
+	LEFT  shift 146
+	RIGHT  shift 147
+	FULL  shift 148
+	CROSS  shift 149
+	ON  shift 224
+	.  reduce 29 (src line 201)
+
+	join_type  goto 143
+
+state 193
+	join_type:  INNER JOIN.    (31)
+
+	.  reduce 31 (src line 213)
+
+
+state 194
+	join_type:  LEFT JOIN.    (32)
+
+	.  reduce 32 (src line 214)
+
+
+state 195
+	join_type:  LEFT OUTER.JOIN 
+
+	JOIN  shift 225
+	.  error
+
+
+state 196
+	join_type:  RIGHT JOIN.    (34)
+
+	.  reduce 34 (src line 216)
+
+
+state 197
+	join_type:  RIGHT OUTER.JOIN 
+
+	JOIN  shift 226
+	.  error
+
+
+state 198
+	join_type:  FULL JOIN.    (36)
+
+	.  reduce 36 (src line 218)
+
+
+state 199
+	join_type:  FULL OUTER.JOIN 
+
+	JOIN  shift 227
+	.  error
+
+
+state 200
+	join_type:  CROSS JOIN.    (38)
+
+	.  reduce 38 (src line 220)
+
+
+state 201
+	table_ref:  identifier DOT identifier.    (21)
+	table_ref:  identifier DOT identifier.AS identifier 
+	table_ref:  identifier DOT identifier.identifier 
+
+	IDENT  shift 19
+	AS  shift 228
+	.  reduce 21 (src line 180)
+
+	identifier  goto 229
+
+state 202
+	table_ref:  identifier AS identifier.    (22)
+
+	.  reduce 22 (src line 181)
+
+
+state 203
+	table_ref:  LPAREN select_stmt RPAREN.AS identifier 
+
+	AS  shift 230
+	.  error
+
+
+state 204
+	expression:  CASE expression WHEN expression THEN.expression ELSE expression END 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 231
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 205
+	expression:  CASE WHEN expression THEN expression.ELSE expression END 
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	ELSE  shift 232
+	.  error
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 206
+	binary_expr:  expression.binary_operator expression 
+	argument_list:  argument_list COMMA expression.    (108)
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 108 (src line 407)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 207
+	function_call:  COUNT LPAREN DISTINCT expression RPAREN.    (106)
+
+	.  reduce 106 (src line 394)
+
+
+state 208
+	insert_stmt:  INSERT INTO identifier LPAREN column_list RPAREN VALUES.LPAREN expression_list RPAREN 
+
+	LPAREN  shift 233
+	.  error
+
+
+state 209
+	column_list:  column_list COMMA identifier.    (114)
+
+	.  reduce 114 (src line 442)
+
+
+state 210
+	insert_stmt:  INSERT INTO identifier VALUES LPAREN expression_list RPAREN.    (111)
+
+	.  reduce 111 (src line 424)
+
+
+state 211
+	assignment_list:  assignment_list COMMA identifier EQ.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 234
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 212
+	column_def_list:  column_def_list COMMA column_def.    (122)
+
+	.  reduce 122 (src line 500)
+
+
+state 213
+	column_def:  identifier data_type NOT.NULL 
+
+	NULL  shift 235
+	.  error
+
+
+state 214
+	column_def:  identifier data_type PRIMARY.KEY 
+
+	KEY  shift 236
+	.  error
+
+
+state 215
+	column_def:  identifier data_type DEFAULT.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 237
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 216
+	data_type:  LIST LT.data_type GT 
+
+	FLOAT  shift 174
+	INTEGER  shift 169
+	BIGINT  shift 170
+	SMALLINT  shift 171
+	TINYINT  shift 172
+	BOOLEAN  shift 173
+	DOUBLE  shift 175
+	DECIMAL  shift 176
+	VARCHAR  shift 177
+	TEXT  shift 178
+	DATE  shift 179
+	TIME  shift 180
+	TIMESTAMP  shift 181
+	BLOB  shift 182
+	UUID  shift 183
+	LIST  shift 184
+	STRUCT  shift 185
+	MAP  shift 186
+	.  error
+
+	data_type  goto 238
+
+state 217
+	data_type:  STRUCT LT.identifier_list GT 
+
+	IDENT  shift 19
+	.  error
+
+	identifier_list  goto 239
+	identifier  goto 240
+
+state 218
+	data_type:  MAP LT.data_type COMMA data_type GT 
+
+	FLOAT  shift 174
+	INTEGER  shift 169
+	BIGINT  shift 170
+	SMALLINT  shift 171
+	TINYINT  shift 172
+	BOOLEAN  shift 173
+	DOUBLE  shift 175
+	DECIMAL  shift 176
+	VARCHAR  shift 177
+	TEXT  shift 178
+	DATE  shift 179
+	TIME  shift 180
+	TIMESTAMP  shift 181
+	BLOB  shift 182
+	UUID  shift 183
+	LIST  shift 184
+	STRUCT  shift 185
+	MAP  shift 186
+	.  error
+
+	data_type  goto 241
+
+state 219
+	create_table_stmt:  CREATE TABLE IF NOT EXISTS identifier LPAREN.column_def_list RPAREN 
+
+	IDENT  shift 19
+	.  error
+
+	column_def_list  goto 242
+	column_def  goto 136
+	identifier  goto 137
+
+state 220
+	select_stmt:  SELECT distinct_clause select_list from_clause where_clause group_by_clause having_clause order_by_clause.limit_clause offset_clause 
+	limit_clause: .    (52)
+
+	LIMIT  shift 244
+	.  reduce 52 (src line 254)
+
+	limit_clause  goto 243
+
+state 221
+	order_by_clause:  ORDER.BY order_list 
+
+	BY  shift 245
+	.  error
+
+
+state 222
+	having_clause:  HAVING expression.    (44)
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 44 (src line 235)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 223
+	group_by_clause:  GROUP BY expression_list.    (42)
+	expression_list:  expression_list.COMMA expression 
+
+	COMMA  shift 120
+	.  reduce 42 (src line 230)
+
+
+state 224
+	join_expr:  table_ref join_type table_ref ON.expression 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 246
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 225
+	join_type:  LEFT OUTER JOIN.    (33)
+
+	.  reduce 33 (src line 215)
+
+
+state 226
+	join_type:  RIGHT OUTER JOIN.    (35)
+
+	.  reduce 35 (src line 217)
+
+
+state 227
+	join_type:  FULL OUTER JOIN.    (37)
+
+	.  reduce 37 (src line 219)
+
+
+state 228
+	table_ref:  identifier DOT identifier AS.identifier 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 247
+
+state 229
+	table_ref:  identifier DOT identifier identifier.    (25)
+
+	.  reduce 25 (src line 184)
+
+
+state 230
+	table_ref:  LPAREN select_stmt RPAREN AS.identifier 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 248
+
+state 231
+	expression:  CASE expression WHEN expression THEN expression.ELSE expression END 
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	ELSE  shift 249
+	.  error
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 232
+	expression:  CASE WHEN expression THEN expression ELSE.expression END 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 250
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 233
+	insert_stmt:  INSERT INTO identifier LPAREN column_list RPAREN VALUES LPAREN.expression_list RPAREN 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 92
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	expression_list  goto 251
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 234
+	binary_expr:  expression.binary_operator expression 
+	assignment_list:  assignment_list COMMA identifier EQ expression.    (117)
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 117 (src line 462)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 235
+	column_def:  identifier data_type NOT NULL.    (124)
+
+	.  reduce 124 (src line 508)
+
+
+state 236
+	column_def:  identifier data_type PRIMARY KEY.    (125)
+
+	.  reduce 125 (src line 512)
+
+
+state 237
+	binary_expr:  expression.binary_operator expression 
+	column_def:  identifier data_type DEFAULT expression.    (126)
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 126 (src line 516)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 238
+	data_type:  LIST LT data_type.GT 
+
+	GT  shift 252
+	.  error
+
+
+state 239
+	data_type:  STRUCT LT identifier_list.GT 
+	identifier_list:  identifier_list.COMMA identifier 
+
+	GT  shift 253
+	COMMA  shift 254
+	.  error
+
+
+state 240
+	identifier_list:  identifier.    (145)
+
+	.  reduce 145 (src line 556)
+
+
+state 241
+	data_type:  MAP LT data_type.COMMA data_type GT 
+
+	COMMA  shift 255
+	.  error
+
+
+state 242
+	create_table_stmt:  CREATE TABLE IF NOT EXISTS identifier LPAREN column_def_list.RPAREN 
+	column_def_list:  column_def_list.COMMA column_def 
+
+	COMMA  shift 167
+	RPAREN  shift 256
+	.  error
+
+
+state 243
+	select_stmt:  SELECT distinct_clause select_list from_clause where_clause group_by_clause having_clause order_by_clause limit_clause.offset_clause 
+	offset_clause: .    (54)
+
+	OFFSET  shift 258
+	.  reduce 54 (src line 259)
+
+	offset_clause  goto 257
+
+state 244
+	limit_clause:  LIMIT.INT 
+
+	INT  shift 259
+	.  error
+
+
+state 245
+	order_by_clause:  ORDER BY.order_list 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 262
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	order_list  goto 260
+	order_item  goto 261
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 246
+	join_expr:  table_ref join_type table_ref ON expression.    (28)
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	.  reduce 28 (src line 191)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 247
+	table_ref:  identifier DOT identifier AS identifier.    (24)
+
+	.  reduce 24 (src line 183)
+
+
+state 248
+	table_ref:  LPAREN select_stmt RPAREN AS identifier.    (27)
+
+	.  reduce 27 (src line 186)
+
+
+state 249
+	expression:  CASE expression WHEN expression THEN expression ELSE.expression END 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 263
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 250
+	expression:  CASE WHEN expression THEN expression ELSE expression.END 
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	END  shift 264
+	.  error
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 251
+	expression_list:  expression_list.COMMA expression 
+	insert_stmt:  INSERT INTO identifier LPAREN column_list RPAREN VALUES LPAREN expression_list.RPAREN 
+
+	COMMA  shift 120
+	RPAREN  shift 265
+	.  error
+
+
+state 252
+	data_type:  LIST LT data_type GT.    (142)
+
+	.  reduce 142 (src line 538)
+
+
+state 253
+	data_type:  STRUCT LT identifier_list GT.    (143)
+
+	.  reduce 143 (src line 542)
+
+
+state 254
+	identifier_list:  identifier_list COMMA.identifier 
+
+	IDENT  shift 19
+	.  error
+
+	identifier  goto 266
+
+state 255
+	data_type:  MAP LT data_type COMMA.data_type GT 
+
+	FLOAT  shift 174
+	INTEGER  shift 169
+	BIGINT  shift 170
+	SMALLINT  shift 171
+	TINYINT  shift 172
+	BOOLEAN  shift 173
+	DOUBLE  shift 175
+	DECIMAL  shift 176
+	VARCHAR  shift 177
+	TEXT  shift 178
+	DATE  shift 179
+	TIME  shift 180
+	TIMESTAMP  shift 181
+	BLOB  shift 182
+	UUID  shift 183
+	LIST  shift 184
+	STRUCT  shift 185
+	MAP  shift 186
+	.  error
+
+	data_type  goto 267
+
+state 256
+	create_table_stmt:  CREATE TABLE IF NOT EXISTS identifier LPAREN column_def_list RPAREN.    (120)
+
+	.  reduce 120 (src line 488)
+
+
+state 257
+	select_stmt:  SELECT distinct_clause select_list from_clause where_clause group_by_clause having_clause order_by_clause limit_clause offset_clause.    (7)
+
+	.  reduce 7 (src line 127)
+
+
+state 258
+	offset_clause:  OFFSET.INT 
+
+	INT  shift 268
+	.  error
+
+
+state 259
+	limit_clause:  LIMIT INT.    (53)
+
+	.  reduce 53 (src line 256)
+
+
+state 260
+	order_by_clause:  ORDER BY order_list.    (46)
+	order_list:  order_list.COMMA order_item 
+
+	COMMA  shift 269
+	.  reduce 46 (src line 240)
+
+
+state 261
+	order_list:  order_item.    (47)
+
+	.  reduce 47 (src line 243)
+
+
+state 262
+	order_item:  expression.    (49)
+	order_item:  expression.ASC 
+	order_item:  expression.DESC 
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	ASC  shift 270
+	DESC  shift 271
+	.  reduce 49 (src line 248)
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 263
+	expression:  CASE expression WHEN expression THEN expression ELSE expression.END 
+	binary_expr:  expression.binary_operator expression 
+
+	EQ  shift 79
+	NEQ  shift 80
+	LT  shift 81
+	LE  shift 82
+	GT  shift 83
+	GE  shift 84
+	PLUS  shift 73
+	MINUS  shift 74
+	MULTIPLY  shift 75
+	DIVIDE  shift 76
+	MODULO  shift 77
+	POWER  shift 78
+	AND  shift 85
+	OR  shift 86
+	CONCAT  shift 68
+	LIKE  shift 69
+	ILIKE  shift 70
+	IN  shift 71
+	IS  shift 72
+	END  shift 272
+	.  error
+
+	binary_operator  goto 64
+	comparison_operator  goto 66
+	arithmetic_operator  goto 65
+	logical_operator  goto 67
+
+state 264
+	expression:  CASE WHEN expression THEN expression ELSE expression END.    (64)
+
+	.  reduce 64 (src line 286)
+
+
+state 265
+	insert_stmt:  INSERT INTO identifier LPAREN column_list RPAREN VALUES LPAREN expression_list RPAREN.    (110)
+
+	.  reduce 110 (src line 415)
+
+
+state 266
+	identifier_list:  identifier_list COMMA identifier.    (146)
+
+	.  reduce 146 (src line 558)
+
+
+state 267
+	data_type:  MAP LT data_type COMMA data_type.GT 
+
+	GT  shift 273
+	.  error
+
+
+state 268
+	offset_clause:  OFFSET INT.    (55)
+
+	.  reduce 55 (src line 261)
+
+
+state 269
+	order_list:  order_list COMMA.order_item 
+
+	IDENT  shift 19
+	STRING  shift 49
+	INT  shift 47
+	FLOAT  shift 48
+	PLUS  shift 46
+	MINUS  shift 45
+	NOT  shift 44
+	LPAREN  shift 34
+	LBRACKET  shift 35
+	NULL  shift 43
+	TRUE  shift 50
+	FALSE  shift 51
+	COUNT  shift 38
+	CASE  shift 31
+	.  error
+
+	expression  goto 262
+	primary_expr  goto 26
+	binary_expr  goto 27
+	unary_expr  goto 28
+	function_call  goto 29
+	subquery  goto 30
+	literal_expr  goto 32
+	column_ref  goto 33
+	order_item  goto 274
+	unary_operator  goto 36
+	identifier  goto 37
+	string_literal  goto 41
+	integer_literal  goto 39
+	float_literal  goto 40
+	boolean_literal  goto 42
+
+state 270
+	order_item:  expression ASC.    (50)
+
+	.  reduce 50 (src line 250)
+
+
+state 271
+	order_item:  expression DESC.    (51)
+
+	.  reduce 51 (src line 251)
+
+
+state 272
+	expression:  CASE expression WHEN expression THEN expression ELSE expression END.    (63)
+
+	.  reduce 63 (src line 276)
+
+
+state 273
+	data_type:  MAP LT data_type COMMA data_type GT.    (144)
+
+	.  reduce 144 (src line 550)
+
+
+state 274
+	order_list:  order_list COMMA order_item.    (48)
+
+	.  reduce 48 (src line 245)
+
+
+128 terminals, 50 nonterminals
+155 grammar rules, 275/16000 states
+28 shift/reduce, 0 reduce/reduce conflicts reported
+99 working sets used
+memory: parser 656/240000
+212 extra closures
+1046 shift entries, 1 exceptions
+118 goto entries
+447 entries saved by goto default
+Optimizer space used: output 663/240000
+663 table entries, 109 zero
+maximum spread: 117, maximum offset: 269
