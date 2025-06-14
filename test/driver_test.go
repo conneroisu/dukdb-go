@@ -9,7 +9,8 @@ import (
 
 func TestPureGoDriver(t *testing.T) {
 	// Test that we can open a database using the pure Go implementation
-	db, err := sql.Open("duckdb", ":memory:")
+	// Use unique database name to avoid test interference
+	db, err := sql.Open("duckdb", ":memory:test_driver")
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}

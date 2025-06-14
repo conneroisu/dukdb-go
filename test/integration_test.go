@@ -26,6 +26,9 @@ func TestFullIntegration(t *testing.T) {
 
 	// Test complete workflow
 	t.Run("CompleteWorkflow", func(t *testing.T) {
+		// Drop table if exists to ensure clean state
+		_ = conn.Execute(ctx, "DROP TABLE IF EXISTS sales")
+		
 		// Create table with various types including DECIMAL
 		createSQL := `CREATE TABLE sales (
 			id INTEGER,
@@ -52,27 +55,29 @@ func TestFullIntegration(t *testing.T) {
 		if err != nil {
 			// Expected - our parser doesn't handle multi-row INSERT yet
 			t.Logf("Multi-row insert not supported: %v", err)
+			
+			// Insert data row by row
+			table, err := db.GetCatalog().GetTable("main", "sales")
+			if err != nil {
+				t.Fatalf("Failed to get table: %v", err)
+			}
+			
+			testData := [][]interface{}{
+				{int32(1), "Laptop", "999.99", int32(2), "Electronics"},
+				{int32(2), "Mouse", "29.99", int32(5), "Electronics"},
+				{int32(3), "Desk", "199.99", int32(1), "Furniture"},
+				{int32(4), "Chair", "149.99", int32(2), "Furniture"},
+				{int32(5), "Monitor", "299.99", int32(3), "Electronics"},
+			}
+			
+			err = table.Insert(testData)
+			if err != nil {
+				t.Fatalf("Failed to insert data: %v", err)
+			}
+		} else {
+			// If multi-row insert succeeded
+			t.Logf("Multi-row insert succeeded")
 		}
-
-		// Insert data row by row
-		table, err := db.GetCatalog().GetTable("main", "sales")
-		if err != nil {
-			t.Fatalf("Failed to get table: %v", err)
-		}
-		
-		testData := [][]interface{}{
-			{int32(1), "Laptop", "999.99", int32(2), "Electronics"},
-			{int32(2), "Mouse", "29.99", int32(5), "Electronics"},
-			{int32(3), "Desk", "199.99", int32(1), "Furniture"},
-			{int32(4), "Chair", "149.99", int32(2), "Furniture"},
-			{int32(5), "Monitor", "299.99", int32(3), "Electronics"},
-		}
-		
-		err = table.Insert(testData)
-		if err != nil {
-			t.Fatalf("Failed to insert data: %v", err)
-		}
-
 		// Test SELECT *
 		result, err := conn.Query(ctx, "SELECT * FROM sales")
 		if err != nil {
@@ -93,6 +98,9 @@ func TestFullIntegration(t *testing.T) {
 	})
 
 	t.Run("AggregateQueries", func(t *testing.T) {
+		// Drop table if exists to ensure clean state
+		_ = conn.Execute(ctx, "DROP TABLE IF EXISTS metrics")
+		
 		// Create a simpler table for aggregation
 		createSQL := `CREATE TABLE metrics (
 			category VARCHAR,

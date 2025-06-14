@@ -242,7 +242,7 @@ func TestPreparedStatements(t *testing.T) {
 }
 
 func TestParameterizedQueries(t *testing.T) {
-	db, err := sql.Open("duckdb", ":memory:")
+	db, err := sql.Open("duckdb", ":memory:test_params")
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}

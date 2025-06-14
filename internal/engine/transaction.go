@@ -45,6 +45,11 @@ type WriteSetEntry struct {
 	inserts   []RowID
 	updates   map[RowID]interface{}
 	deletes   []RowID
+	
+	// Store actual data for inserts
+	pendingInserts [][]interface{}
+	// Store update data: map of column index to new value for each row
+	pendingUpdates map[int]map[int]interface{} // map[rowIndex]map[colIndex]value
 }
 
 // RowID uniquely identifies a row
@@ -78,9 +83,35 @@ func (t *Transaction) Commit() error {
 	t.writeTimestamp = getNextTimestamp()
 	
 	// Apply write set
-	for _, entry := range t.writeSet {
-		// TODO: Apply changes to tables
-		_ = entry
+	for tableName, entry := range t.writeSet {
+		// Get the table from catalog
+		catalog := t.connection.database.catalog
+		schema, err := catalog.GetSchema("main")
+		if err != nil {
+			return fmt.Errorf("failed to get schema: %w", err)
+		}
+		
+		table, err := schema.GetTable(tableName)
+		if err != nil {
+			return fmt.Errorf("failed to get table %s: %w", tableName, err)
+		}
+		
+		// Apply pending inserts
+		if len(entry.pendingInserts) > 0 {
+			if err := table.Insert(entry.pendingInserts); err != nil {
+				return fmt.Errorf("failed to apply inserts to table %s: %w", tableName, err)
+			}
+		}
+		
+		// Apply pending updates
+		if entry.pendingUpdates != nil && len(entry.pendingUpdates) > 0 {
+			if err := table.UpdateRows(entry.pendingUpdates); err != nil {
+				return fmt.Errorf("failed to apply updates to table %s: %w", tableName, err)
+			}
+		}
+		
+		// Apply deletes
+		// TODO: Implement delete logic
 	}
 	
 	t.state = TxnStateCommitted

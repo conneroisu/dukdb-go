@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 	"unsafe"
 
@@ -367,10 +368,31 @@ func (v *Vector) setFlatValue(pos int, value interface{}) error {
 		}
 		(*(*[]string)(v.data))[pos] = val
 	case TypeDecimal:
-		// Accept string representation of decimal
-		val, ok := value.(string)
-		if !ok {
-			return fmt.Errorf("expected string for decimal, got %T", value)
+		// Accept string or numeric representation of decimal
+		var val string
+		switch typedVal := value.(type) {
+		case string:
+			val = typedVal
+		case float64:
+			// Use the scale from the logical type if available, otherwise use a reasonable default
+			precision := int(v.logicalType.Scale)
+			if precision < 0 || precision > 15 {
+				precision = 6 // Default precision for decimals
+			}
+			val = strconv.FormatFloat(typedVal, 'f', precision, 64)
+		case float32:
+			// Use the scale from the logical type if available
+			precision := int(v.logicalType.Scale)
+			if precision < 0 || precision > 15 {
+				precision = 6 // Default precision for decimals
+			}
+			val = strconv.FormatFloat(float64(typedVal), 'f', precision, 32)
+		case int:
+			val = strconv.Itoa(typedVal)
+		case int64:
+			val = strconv.FormatInt(typedVal, 10)
+		default:
+			return fmt.Errorf("expected string or numeric type for decimal, got %T", value)
 		}
 		(*(*[]string)(v.data))[pos] = val
 	case TypeDate:
@@ -404,8 +426,18 @@ func (v *Vector) setFlatValue(pos int, value interface{}) error {
 			midnight := time.Date(val.Year(), val.Month(), val.Day(), 0, 0, 0, 0, val.Location())
 			microsecondsSinceMidnight := val.Sub(midnight).Microseconds()
 			(*(*[]int64)(v.data))[pos] = microsecondsSinceMidnight
+		case string:
+			// Parse time string (HH:MM:SS format)
+			parsedTime, err := time.Parse("15:04:05", val)
+			if err != nil {
+				return fmt.Errorf("failed to parse time string '%s': %w", val, err)
+			}
+			// Convert to microseconds since midnight
+			midnight := time.Date(parsedTime.Year(), parsedTime.Month(), parsedTime.Day(), 0, 0, 0, 0, parsedTime.Location())
+			microsecondsSinceMidnight := parsedTime.Sub(midnight).Microseconds()
+			(*(*[]int64)(v.data))[pos] = microsecondsSinceMidnight
 		default:
-			return fmt.Errorf("expected int64 or time.Time for time, got %T", value)
+			return fmt.Errorf("expected int64, time.Time, or string for time, got %T", value)
 		}
 	case TypeTimestamp:
 		switch val := value.(type) {
@@ -414,8 +446,28 @@ func (v *Vector) setFlatValue(pos int, value interface{}) error {
 		case time.Time:
 			// Convert time.Time to microseconds since Unix epoch
 			(*(*[]int64)(v.data))[pos] = val.UnixMicro()
+		case string:
+			// Parse timestamp string
+			// Try different formats
+			var parsedTime time.Time
+			var err error
+			
+			// Try ISO format with timezone
+			parsedTime, err = time.Parse(time.RFC3339, val)
+			if err != nil {
+				// Try without timezone
+				parsedTime, err = time.Parse("2006-01-02 15:04:05", val)
+				if err != nil {
+					// Try with T separator
+					parsedTime, err = time.Parse("2006-01-02T15:04:05", val)
+					if err != nil {
+						return fmt.Errorf("failed to parse timestamp string '%s': %w", val, err)
+					}
+				}
+			}
+			(*(*[]int64)(v.data))[pos] = parsedTime.UnixMicro()
 		default:
-			return fmt.Errorf("expected int64 or time.Time for timestamp, got %T", value)
+			return fmt.Errorf("expected int64, time.Time, or string for timestamp, got %T", value)
 		}
 	case TypeBlob:
 		// Accept []byte or string (hex/base64)

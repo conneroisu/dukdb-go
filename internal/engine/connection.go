@@ -109,11 +109,7 @@ func (c *Connection) beginTransactionInternal() error {
 		return fmt.Errorf("transaction already in progress")
 	}
 	
-	c.txn = &Transaction{
-		id:         generateTransactionID(),
-		connection: c,
-		state:      TxnStateActive,
-	}
+	c.txn = NewTransaction(c)
 	c.txnState = TxnStateManual
 	
 	return nil

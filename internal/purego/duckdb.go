@@ -53,11 +53,11 @@ type DuckDB struct {
 	duckdbGetConfigFlag func(idx uint64, name **byte, desc **byte) uint32
 	duckdbSetConfig     func(config Config, name unsafe.Pointer, option unsafe.Pointer) uint32
 	duckdbDestroyConfig func(config *Config)
-	duckdbOpenExt  func(path unsafe.Pointer, db *Database, config Config, err **byte) uint32
+	duckdbOpenExt       func(path unsafe.Pointer, db *Database, config Config, err **byte) uint32
 
 	// Type functions
 	duckdbCreateLogicalType  func(typeId uint32) LogicalType
-	duckdbGetTypeId   func(logicalType LogicalType) uint32
+	duckdbGetTypeId          func(logicalType LogicalType) uint32
 	duckdbDestroyLogicalType func(logicalType *LogicalType)
 
 	// Parameter binding functions
@@ -98,7 +98,6 @@ type DuckDB struct {
 	duckdbValueDecimal func(result *Result, col uint64, row uint64) uintptr
 	duckdbBindDecimal  func(stmt PreparedStatement, idx uint64, val uintptr) uint32
 
-
 	// List/Array functions
 	duckdbListSize          func(result *Result, col uint64, row uint64) uint64
 	duckdbListValue         func(result *Result, col uint64, row uint64) Value
@@ -135,7 +134,8 @@ func New() (*DuckDB, error) {
 	db := &DuckDB{lib: lib}
 
 	// Register all required functions
-	if err := db.registerFunctions(); err != nil {
+	err = db.registerFunctions()
+	if err != nil {
 		_ = lib.Close() // Library closing errors not critical in error path
 		return nil, err
 	}
@@ -357,7 +357,6 @@ func (d *DuckDB) registerFunctions() error {
 	if err := d.lib.RegisterFunc(&d.duckdbBindDecimal, "duckdb_bind_decimal"); err != nil {
 		return fmt.Errorf("failed to register duckdb_bind_decimal: %w", err)
 	}
-
 
 	return nil
 }

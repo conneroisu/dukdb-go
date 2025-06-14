@@ -29,6 +29,7 @@ const (
 	StmtCommit
 	StmtRollback
 	StmtUnion
+	StmtWith
 )
 
 // ParseSQL parses a SQL string into a statement AST
@@ -43,6 +44,8 @@ func ParseSQL(sql string) (Statement, error) {
 	upperSQL := strings.ToUpper(sql)
 	
 	switch {
+	case strings.HasPrefix(upperSQL, "WITH"):
+		return parseWithStatement(sql)
 	case strings.HasPrefix(upperSQL, "SELECT"):
 		return parseSelect(sql)
 	case strings.HasPrefix(upperSQL, "INSERT"):
@@ -90,6 +93,21 @@ type UnionStatement struct {
 }
 
 func (s *UnionStatement) Type() StatementType { return StmtUnion }
+
+// WithStatement represents a WITH clause (CTE) statement
+type WithStatement struct {
+	CTEs      []CTE      // Common Table Expressions
+	Statement Statement  // Main query that uses the CTEs
+}
+
+func (s *WithStatement) Type() StatementType { return StmtWith }
+
+// CTE represents a Common Table Expression
+type CTE struct {
+	Name    string
+	Columns []string     // Optional column names
+	Query   Statement    // The subquery
+}
 
 // JoinClause represents a JOIN in a SELECT statement
 type JoinClause struct {
@@ -188,6 +206,8 @@ const (
 	ExprSubquery
 	ExprParameter
 	ExprFieldAccess
+	ExprWindow
+	ExprInterval
 )
 
 // ColumnExpr represents a column reference
@@ -291,6 +311,64 @@ type FieldAccessExpr struct {
 }
 
 func (e *FieldAccessExpr) ExprType() ExpressionType { return ExprFieldAccess }
+
+// WindowExpr represents a window function expression (e.g., LAG(x) OVER (PARTITION BY y ORDER BY z))
+type WindowExpr struct {
+	Function    *FunctionExpr   // The window function (LAG, LEAD, ROW_NUMBER, etc.)
+	PartitionBy []Expression    // PARTITION BY expressions
+	OrderBy     []OrderByExpr   // ORDER BY expressions
+	FrameType   WindowFrameType // ROWS, RANGE, or GROUPS
+	FrameStart  *WindowFrameBound
+	FrameEnd    *WindowFrameBound
+}
+
+func (e *WindowExpr) ExprType() ExpressionType { return ExprWindow }
+
+// WindowFrameType represents the type of window frame
+type WindowFrameType int
+
+const (
+	FrameRows WindowFrameType = iota
+	FrameRange
+	FrameGroups
+)
+
+// WindowFrameBound represents a window frame boundary
+type WindowFrameBound struct {
+	Type   WindowBoundType
+	Offset Expression // For PRECEDING/FOLLOWING with offset
+}
+
+// WindowBoundType represents the type of window frame boundary
+type WindowBoundType int
+
+const (
+	BoundUnboundedPreceding WindowBoundType = iota
+	BoundPreceding
+	BoundCurrentRow
+	BoundFollowing
+	BoundUnboundedFollowing
+)
+
+// IntervalExpr represents an interval expression (e.g., INTERVAL '1' DAY)
+type IntervalExpr struct {
+	Value    string
+	Unit     IntervalUnit
+}
+
+func (e *IntervalExpr) ExprType() ExpressionType { return ExprInterval }
+
+// IntervalUnit represents the unit of an interval
+type IntervalUnit int
+
+const (
+	IntervalYear IntervalUnit = iota
+	IntervalMonth
+	IntervalDay
+	IntervalHour
+	IntervalMinute
+	IntervalSecond
+)
 
 // TableRef represents a table reference
 type TableRef struct {
@@ -569,6 +647,18 @@ func parseValueTupleWithIndex(tuple string, startParamIndex int) ([]Expression, 
 		} else if strings.ToUpper(part) == "NULL" {
 			// NULL value
 			expressions = append(expressions, &ConstantExpr{Value: nil})
+		} else if strings.HasPrefix(strings.ToUpper(part), "TIME '") && strings.HasSuffix(part, "'") {
+			// TIME literal - extract the time string
+			timeStr := part[6 : len(part)-1] // Remove TIME ' and trailing '
+			expressions = append(expressions, &ConstantExpr{Value: timeStr})
+		} else if strings.HasPrefix(strings.ToUpper(part), "DATE '") && strings.HasSuffix(part, "'") {
+			// DATE literal - extract the date string
+			dateStr := part[6 : len(part)-1] // Remove DATE ' and trailing '
+			expressions = append(expressions, &ConstantExpr{Value: dateStr})
+		} else if strings.HasPrefix(strings.ToUpper(part), "TIMESTAMP '") && strings.HasSuffix(part, "'") {
+			// TIMESTAMP literal - extract the timestamp string
+			tsStr := part[11 : len(part)-1] // Remove TIMESTAMP ' and trailing '
+			expressions = append(expressions, &ConstantExpr{Value: tsStr})
 		} else {
 			// Try to parse as number
 			if num, err := parseNumber(part); err == nil {
@@ -886,8 +976,10 @@ func parseColumnDefinitions(colDefs string) []ColumnDefinition {
 				logicalType = storage.LogicalType{ID: storage.TypeDouble}
 			case upperColType == "BOOLEAN" || upperColType == "BOOL":
 				logicalType = storage.LogicalType{ID: storage.TypeBoolean}
-			case upperColType == "DECIMAL":
-				logicalType = storage.LogicalType{ID: storage.TypeDecimal, Width: 18, Scale: 3}
+			case strings.HasPrefix(upperColType, "DECIMAL"):
+				// Parse DECIMAL(precision, scale)
+				width, scale := parseDecimalPrecisionScale(colType)
+				logicalType = storage.LogicalType{ID: storage.TypeDecimal, Width: width, Scale: scale}
 			case upperColType == "DATE":
 				logicalType = storage.LogicalType{ID: storage.TypeDate}
 			case upperColType == "TIME":
@@ -924,6 +1016,38 @@ func parseColumnDefinitions(colDefs string) []ColumnDefinition {
 	}
 	
 	return columns
+}
+
+// parseDecimalPrecisionScale parses DECIMAL(precision, scale) and returns the values
+func parseDecimalPrecisionScale(typeStr string) (width uint8, scale uint8) {
+	// Default values
+	width = 18
+	scale = 3
+	
+	// Look for parentheses
+	openParen := strings.Index(typeStr, "(")
+	closeParen := strings.Index(typeStr, ")")
+	
+	if openParen != -1 && closeParen != -1 && closeParen > openParen {
+		params := typeStr[openParen+1 : closeParen]
+		parts := strings.Split(params, ",")
+		
+		if len(parts) >= 1 {
+			// Parse precision
+			if precision, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil && precision > 0 && precision <= 255 {
+				width = uint8(precision)
+			}
+		}
+		
+		if len(parts) >= 2 {
+			// Parse scale
+			if s, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && s >= 0 && s <= 255 {
+				scale = uint8(s)
+			}
+		}
+	}
+	
+	return width, scale
 }
 
 // parseWhereExpression parses a WHERE clause expression
@@ -1339,33 +1463,45 @@ func parseMathExpression(expr string) Expression {
 	// For now, just return as a constant expression
 	// In a real implementation, this would parse into a proper expression tree
 	
-	// Handle simple cases like "value * 1.1"
-	if strings.Contains(expr, "*") {
-		parts := strings.Split(expr, "*")
-		if len(parts) == 2 {
-			left := strings.TrimSpace(parts[0])
-			right := strings.TrimSpace(parts[1])
-			
-			var leftExpr, rightExpr Expression
-			
-			// Parse left side
-			if num, err := parseNumber(left); err == nil {
-				leftExpr = &ConstantExpr{Value: num}
-			} else {
-				leftExpr = &ColumnExpr{Column: left}
-			}
-			
-			// Parse right side
-			if num, err := parseNumber(right); err == nil {
-				rightExpr = &ConstantExpr{Value: num}
-			} else {
-				rightExpr = &ColumnExpr{Column: right}
-			}
-			
-			return &BinaryExpr{
-				Left:  leftExpr,
-				Op:    OpMult,
-				Right: rightExpr,
+	// Handle simple cases like "value + 1", "value - 1", "value * 1.1"
+	operators := []struct {
+		symbol string
+		op     BinaryOp
+	}{
+		{"+", OpPlus},
+		{"-", OpMinus},
+		{"*", OpMult},
+		{"/", OpDiv},
+	}
+	
+	for _, operator := range operators {
+		if strings.Contains(expr, operator.symbol) {
+			parts := strings.Split(expr, operator.symbol)
+			if len(parts) == 2 {
+				left := strings.TrimSpace(parts[0])
+				right := strings.TrimSpace(parts[1])
+				
+				var leftExpr, rightExpr Expression
+				
+				// Parse left side
+				if num, err := parseNumber(left); err == nil {
+					leftExpr = &ConstantExpr{Value: num}
+				} else {
+					leftExpr = &ColumnExpr{Column: left}
+				}
+				
+				// Parse right side
+				if num, err := parseNumber(right); err == nil {
+					rightExpr = &ConstantExpr{Value: num}
+				} else {
+					rightExpr = &ColumnExpr{Column: right}
+				}
+				
+				return &BinaryExpr{
+					Left:  leftExpr,
+					Op:    operator.op,
+					Right: rightExpr,
+				}
 			}
 		}
 	}
@@ -1374,10 +1510,20 @@ func parseMathExpression(expr string) Expression {
 	return &ColumnExpr{Column: expr}
 }
 
-// parseFunctionExpression parses a function call like COUNT(*) or SUM(column)
+// parseFunctionExpression parses a function call like COUNT(*) or SUM(column) or LAG(x) OVER (...)
 func parseFunctionExpression(funcCall string) Expression {
 	funcCall = strings.TrimSpace(funcCall)
 	
+	// Check if this is a window function (contains OVER clause)
+	upperFuncCall := strings.ToUpper(funcCall)
+	overIdx := findTopLevelKeyword(funcCall, upperFuncCall, " OVER ")
+	
+	if overIdx != -1 {
+		// This is a window function
+		return parseWindowFunction(funcCall, overIdx)
+	}
+	
+	// Regular function parsing
 	// Find the opening parenthesis
 	parenIdx := strings.Index(funcCall, "(")
 	if parenIdx == -1 {
@@ -1386,13 +1532,43 @@ func parseFunctionExpression(funcCall string) Expression {
 	
 	// Extract function name and arguments
 	funcName := strings.TrimSpace(funcCall[:parenIdx])
-	argsStr := strings.TrimSpace(funcCall[parenIdx+1:])
 	
-	// Remove closing parenthesis
-	if !strings.HasSuffix(argsStr, ")") {
+	// Find matching closing parenthesis
+	parenDepth := 0
+	closingIdx := -1
+	inString := false
+	
+	for i := parenIdx; i < len(funcCall); i++ {
+		ch := funcCall[i]
+		switch ch {
+		case '\'':
+			if i == 0 || funcCall[i-1] != '\\' {
+				inString = !inString
+			}
+		case '(':
+			if !inString {
+				parenDepth++
+			}
+		case ')':
+			if !inString {
+				parenDepth--
+				if parenDepth == 0 {
+					closingIdx = i
+					break
+				}
+			}
+		}
+		if closingIdx != -1 {
+			break
+		}
+	}
+	
+	if closingIdx == -1 {
 		return nil
 	}
-	argsStr = argsStr[:len(argsStr)-1]
+	
+	// Extract arguments
+	argsStr := funcCall[parenIdx+1:closingIdx]
 	
 	// Parse arguments
 	var args []Expression
@@ -2639,6 +2815,20 @@ func parseSubqueryInWhere(where string) Expression {
 // parseExpressionValue parses a value that could be a string literal, column, or other expression
 func parseExpressionValue(s string) Expression {
 	s = strings.TrimSpace(s)
+	upperS := strings.ToUpper(s)
+	
+	// Check for special constants
+	if upperS == "CURRENT_DATE" {
+		return &ConstantExpr{Value: "CURRENT_DATE"}
+	}
+	if upperS == "CURRENT_TIMESTAMP" {
+		return &ConstantExpr{Value: "CURRENT_TIMESTAMP"}
+	}
+	
+	// Check for INTERVAL expression
+	if strings.HasPrefix(upperS, "INTERVAL") {
+		return parseIntervalExpression(s)
+	}
 	
 	// Check for string literal
 	if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") {
@@ -2652,4 +2842,314 @@ func parseExpressionValue(s string) Expression {
 	
 	// Otherwise, treat as column reference
 	return parseColumnExpression(s)
+}
+
+// parseWithStatement parses a WITH clause (CTE) statement
+func parseWithStatement(sql string) (Statement, error) {
+	sql = strings.TrimSpace(sql)
+	upperSQL := strings.ToUpper(sql)
+	
+	// Skip "WITH" keyword
+	if !strings.HasPrefix(upperSQL, "WITH") {
+		return nil, fmt.Errorf("expected WITH keyword")
+	}
+	
+	sql = strings.TrimSpace(sql[4:]) // Skip "WITH"
+	upperSQL = strings.ToUpper(sql)
+	
+	// Parse CTEs
+	var ctes []CTE
+	
+	// Parse each CTE until we hit the main query
+	for {
+		// Find CTE name
+		parts := strings.Fields(sql)
+		if len(parts) == 0 {
+			return nil, fmt.Errorf("expected CTE name after WITH")
+		}
+		
+		cteName := parts[0]
+		sql = strings.TrimSpace(sql[len(cteName):])
+		upperSQL = strings.ToUpper(sql)
+		
+		// Check for optional column list
+		var columns []string
+		if strings.HasPrefix(sql, "(") {
+			// Parse column list
+			closingParen := strings.Index(sql, ")")
+			if closingParen == -1 {
+				return nil, fmt.Errorf("missing closing parenthesis in CTE column list")
+			}
+			colList := sql[1:closingParen]
+			colParts := strings.Split(colList, ",")
+			for _, col := range colParts {
+				columns = append(columns, strings.TrimSpace(col))
+			}
+			sql = strings.TrimSpace(sql[closingParen+1:])
+			upperSQL = strings.ToUpper(sql)
+		}
+		
+		// Expect AS keyword
+		if !strings.HasPrefix(upperSQL, "AS") {
+			return nil, fmt.Errorf("expected AS after CTE name")
+		}
+		sql = strings.TrimSpace(sql[2:]) // Skip "AS"
+		upperSQL = strings.ToUpper(sql)
+		
+		// Expect opening parenthesis for subquery
+		if !strings.HasPrefix(sql, "(") {
+			return nil, fmt.Errorf("expected ( after AS in CTE")
+		}
+		
+		// Find matching closing parenthesis
+		parenDepth := 0
+		subqueryEnd := -1
+		inString := false
+		
+		for i, ch := range sql {
+			switch ch {
+			case '\'':
+				inString = !inString
+			case '(':
+				if !inString {
+					parenDepth++
+				}
+			case ')':
+				if !inString {
+					parenDepth--
+					if parenDepth == 0 {
+						subqueryEnd = i
+						break
+					}
+				}
+			}
+			if subqueryEnd != -1 {
+				break
+			}
+		}
+		
+		if subqueryEnd == -1 {
+			return nil, fmt.Errorf("missing closing parenthesis for CTE subquery")
+		}
+		
+		// Parse the subquery
+		subquerySQL := sql[1:subqueryEnd]
+		subquery, err := ParseSQL(subquerySQL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse CTE subquery: %w", err)
+		}
+		
+		// Add CTE to list
+		ctes = append(ctes, CTE{
+			Name:    cteName,
+			Columns: columns,
+			Query:   subquery,
+		})
+		
+		// Move past the subquery
+		sql = strings.TrimSpace(sql[subqueryEnd+1:])
+		upperSQL = strings.ToUpper(sql)
+		
+		// Check if there's another CTE (comma) or the main query
+		if strings.HasPrefix(sql, ",") {
+			// Another CTE follows
+			sql = strings.TrimSpace(sql[1:])
+			upperSQL = strings.ToUpper(sql)
+			continue
+		} else {
+			// Main query follows
+			break
+		}
+	}
+	
+	// Parse the main query
+	if sql == "" {
+		return nil, fmt.Errorf("missing main query after WITH clause")
+	}
+	
+	mainQuery, err := ParseSQL(sql)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse main query: %w", err)
+	}
+	
+	return &WithStatement{
+		CTEs:      ctes,
+		Statement: mainQuery,
+	}, nil
+}
+
+// findTopLevelKeyword finds a keyword at the top level (not in subqueries or strings)
+func findTopLevelKeyword(sql, upperSQL, keyword string) int {
+	parenDepth := 0
+	inString := false
+	keywordLen := len(keyword)
+	
+	for i := 0; i < len(sql); i++ {
+		ch := sql[i]
+		
+		// Track string literals
+		if ch == '\'' && (i == 0 || sql[i-1] != '\\') {
+			inString = !inString
+			continue
+		}
+		
+		if inString {
+			continue
+		}
+		
+		// Track parentheses depth
+		switch ch {
+		case '(':
+			parenDepth++
+		case ')':
+			parenDepth--
+		}
+		
+		// Look for the keyword at the top level (parenDepth == 0)
+		if parenDepth == 0 && i+keywordLen <= len(upperSQL) {
+			if upperSQL[i:i+keywordLen] == keyword {
+				return i
+			}
+		}
+	}
+	
+	return -1
+}
+
+// parseWindowFunction parses a window function expression
+func parseWindowFunction(funcCall string, overIdx int) Expression {
+	// Parse the function part (before OVER)
+	funcPart := strings.TrimSpace(funcCall[:overIdx])
+	funcExpr := parseFunctionExpression(funcPart)
+	if funcExpr == nil {
+		return nil
+	}
+	
+	func_, ok := funcExpr.(*FunctionExpr)
+	if !ok {
+		return nil
+	}
+	
+	// Parse the OVER clause
+	overPart := strings.TrimSpace(funcCall[overIdx+5:]) // Skip " OVER"
+	if !strings.HasPrefix(overPart, "(") || !strings.HasSuffix(overPart, ")") {
+		return nil
+	}
+	
+	// Remove parentheses
+	overContent := strings.TrimSpace(overPart[1 : len(overPart)-1])
+	
+	// Parse PARTITION BY and ORDER BY
+	var partitionBy []Expression
+	var orderBy []OrderByExpr
+	
+	if overContent != "" {
+		upperOver := strings.ToUpper(overContent)
+		
+		// Find PARTITION BY
+		partitionIdx := strings.Index(upperOver, "PARTITION BY")
+		orderIdx := strings.Index(upperOver, "ORDER BY")
+		
+		if partitionIdx != -1 {
+			// Extract PARTITION BY clause
+			partitionStart := partitionIdx + 12 // Skip "PARTITION BY"
+			partitionEnd := len(overContent)
+			if orderIdx > partitionIdx {
+				partitionEnd = orderIdx
+			}
+			
+			partitionClause := strings.TrimSpace(overContent[partitionStart:partitionEnd])
+			if partitionClause != "" {
+				// Parse partition expressions
+				partParts := strings.Split(partitionClause, ",")
+				for _, part := range partParts {
+					part = strings.TrimSpace(part)
+					if part != "" {
+						partitionBy = append(partitionBy, parseColumnExpression(part))
+					}
+				}
+			}
+		}
+		
+		if orderIdx != -1 {
+			// Extract ORDER BY clause
+			orderStart := orderIdx + 8 // Skip "ORDER BY"
+			orderEnd := len(overContent)
+			
+			// Check for frame specification (ROWS, RANGE, etc.)
+			frameKeywords := []string{" ROWS ", " RANGE ", " GROUPS "}
+			for _, keyword := range frameKeywords {
+				if idx := strings.Index(upperOver[orderStart:], keyword); idx != -1 {
+					orderEnd = orderStart + idx
+					break
+				}
+			}
+			
+			orderClause := strings.TrimSpace(overContent[orderStart:orderEnd])
+			if orderClause != "" {
+				orderBy = parseOrderByColumns(orderClause)
+			}
+		}
+		
+		// TODO: Parse frame specification (ROWS BETWEEN, etc.)
+	}
+	
+	return &WindowExpr{
+		Function:    func_,
+		PartitionBy: partitionBy,
+		OrderBy:     orderBy,
+	}
+}
+
+// parseIntervalExpression parses INTERVAL expressions like INTERVAL '1' DAY
+func parseIntervalExpression(s string) Expression {
+	s = strings.TrimSpace(s)
+	upperS := strings.ToUpper(s)
+	
+	if !strings.HasPrefix(upperS, "INTERVAL") {
+		return nil
+	}
+	
+	// Remove INTERVAL keyword
+	s = strings.TrimSpace(s[8:])
+	
+	// Parse the value (should be quoted)
+	if !strings.HasPrefix(s, "'") {
+		return nil
+	}
+	
+	quoteEnd := strings.Index(s[1:], "'")
+	if quoteEnd == -1 {
+		return nil
+	}
+	quoteEnd++ // Adjust for skipping first quote
+	
+	value := s[1:quoteEnd]
+	remainder := strings.TrimSpace(s[quoteEnd+1:])
+	
+	// Parse the unit
+	var unit IntervalUnit
+	upperRemainder := strings.ToUpper(remainder)
+	
+	switch {
+	case strings.HasPrefix(upperRemainder, "YEAR"):
+		unit = IntervalYear
+	case strings.HasPrefix(upperRemainder, "MONTH"):
+		unit = IntervalMonth
+	case strings.HasPrefix(upperRemainder, "DAY"):
+		unit = IntervalDay
+	case strings.HasPrefix(upperRemainder, "HOUR"):
+		unit = IntervalHour
+	case strings.HasPrefix(upperRemainder, "MINUTE"):
+		unit = IntervalMinute
+	case strings.HasPrefix(upperRemainder, "SECOND"):
+		unit = IntervalSecond
+	default:
+		return nil
+	}
+	
+	return &IntervalExpr{
+		Value: value,
+		Unit:  unit,
+	}
 }

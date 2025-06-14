@@ -177,6 +177,11 @@ func (t *Table) GetColumns() []ColumnDefinition {
 	return t.columns
 }
 
+// GetName returns the table's name
+func (t *Table) GetName() string {
+	return t.name
+}
+
 // Insert inserts data into the table
 func (t *Table) Insert(values [][]interface{}) error {
 	t.mu.Lock()
@@ -191,6 +196,14 @@ func (t *Table) Scan() ([]*storage.DataChunk, error) {
 	defer t.mu.RUnlock()
 	
 	return t.data.Scan()
+}
+
+// UpdateRows updates specific rows in the table
+func (t *Table) UpdateRows(updates map[int]map[int]interface{}) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	
+	return t.data.UpdateRows(updates)
 }
 
 // TableData manages the actual data storage for a table
@@ -274,6 +287,31 @@ func (td *TableData) GetRowCount() int64 {
 	td.mu.RLock()
 	defer td.mu.RUnlock()
 	return td.rowCount
+}
+
+// UpdateRows updates specific rows by row index and column index
+func (td *TableData) UpdateRows(updates map[int]map[int]interface{}) error {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	
+	// For simplicity, assume all rows fit in sequential order across chunks
+	currentRowIndex := 0
+	
+	for _, chunk := range td.chunks {
+		for row := 0; row < chunk.Size(); row++ {
+			if updateData, exists := updates[currentRowIndex]; exists {
+				// Apply updates to this row
+				for colIdx, newValue := range updateData {
+					if err := chunk.SetValue(colIdx, row, newValue); err != nil {
+						return fmt.Errorf("failed to update row %d col %d: %w", currentRowIndex, colIdx, err)
+					}
+				}
+			}
+			currentRowIndex++
+		}
+	}
+	
+	return nil
 }
 
 // ReplaceChunks replaces all data chunks with new ones

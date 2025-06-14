@@ -419,10 +419,29 @@ func (e *Executor) executeInsert(ctx context.Context, plan *InsertPlan) (*QueryR
 		rows[i] = row
 	}
 
-	// Insert into table
-	err := plan.Table.Insert(rows)
-	if err != nil {
-		return nil, fmt.Errorf("insert failed: %w", err)
+	// Check if we're in a transaction
+	if e.connection.txn != nil && e.connection.txnState == TxnStateManual {
+		// Store in transaction's write set instead of directly inserting
+		for _, row := range rows {
+			rowID := RowID{
+				ChunkID: uint32(len(e.connection.txn.writeSet)),
+				RowIdx:  uint32(len(rows)),
+			}
+			e.connection.txn.AddInsert(plan.Table.GetName(), rowID)
+			
+			// Store the actual row data in the write set entry
+			entry := e.connection.txn.writeSet[plan.Table.GetName()]
+			if entry.pendingInserts == nil {
+				entry.pendingInserts = make([][]interface{}, 0)
+			}
+			entry.pendingInserts = append(entry.pendingInserts, row)
+		}
+	} else {
+		// No transaction, insert directly
+		err := plan.Table.Insert(rows)
+		if err != nil {
+			return nil, fmt.Errorf("insert failed: %w", err)
+		}
 	}
 
 	// Return empty result with row count
@@ -475,69 +494,164 @@ func (e *Executor) executeTransaction(ctx context.Context, plan *TransactionPlan
 
 // executeUpdate executes an update operation
 func (e *Executor) executeUpdate(ctx context.Context, plan *UpdatePlan) (*QueryResult, error) {
-	// For now, implement a simple update by scanning all rows,
-	// evaluating WHERE clause, and updating matching rows
+	// Check if we're in a transaction
+	if e.connection.txn != nil && e.connection.txnState == TxnStateManual {
+		// In transaction mode, we need to store updates in the write set
+		// For simplicity, we'll read current data and store complete new rows
+		chunks, err := plan.Table.Scan()
+		if err != nil {
+			return nil, fmt.Errorf("scan failed: %w", err)
+		}
 
-	// Get all data chunks
-	chunks, err := plan.Table.Scan()
-	if err != nil {
-		return nil, fmt.Errorf("scan failed: %w", err)
-	}
+		// Get column definitions
+		columnDefs := plan.Table.GetColumns()
+		columnMap := make(map[string]int)
+		for i, col := range columnDefs {
+			columnMap[col.Name] = i
+		}
 
-	// Get column definitions
-	columnDefs := plan.Table.GetColumns()
-	columnMap := make(map[string]int)
-	for i, col := range columnDefs {
-		columnMap[col.Name] = i
-	}
+		// Collect all rows that need updating
+		var updatedRows [][]interface{}
+		updatedRowIndices := []int{}
+		totalRowIndex := 0
 
-	// Count updated rows
-	updatedRows := 0
-
-	// Process each chunk
-	for _, chunk := range chunks {
-		for row := 0; row < chunk.Size(); row++ {
-			// Evaluate WHERE clause if present
-			shouldUpdate := true
-			if plan.Where != nil {
-				match, err := evaluateWhereClause(plan.Where, chunk, row, columnDefs)
-				if err != nil {
-					return nil, fmt.Errorf("WHERE clause error at row %d: %w", row, err)
-				}
-				shouldUpdate = match
-			}
-
-			if shouldUpdate {
-				// Apply SET clauses
-				for _, set := range plan.Sets {
-					colIdx, exists := columnMap[set.Column]
-					if !exists {
-						return nil, fmt.Errorf("column %s not found", set.Column)
-					}
-
-					// Evaluate the value expression
-					value, err := evaluateExpression(set.Value, chunk, row)
+		// Process each chunk
+		for _, chunk := range chunks {
+			for row := 0; row < chunk.Size(); row++ {
+				// Evaluate WHERE clause if present
+				shouldUpdate := true
+				if plan.Where != nil {
+					match, err := evaluateWhereClause(plan.Where, chunk, row, columnDefs)
 					if err != nil {
-						return nil, err
+						return nil, fmt.Errorf("WHERE clause error at row %d: %w", row, err)
 					}
-
-					// Update the value
-					if err := chunk.SetValue(colIdx, row, value); err != nil {
-						return nil, err
-					}
+					shouldUpdate = match
 				}
 
-				updatedRows++
+				if shouldUpdate {
+					// Create a copy of the row with updates applied
+					updatedRow := make([]interface{}, len(columnDefs))
+					
+					// First copy all existing values
+					for colIdx := range columnDefs {
+						val, err := chunk.GetValue(colIdx, row)
+						if err != nil {
+							return nil, err
+						}
+						updatedRow[colIdx] = val
+					}
+					
+					// Apply SET clauses
+					for _, set := range plan.Sets {
+						colIdx, exists := columnMap[set.Column]
+						if !exists {
+							return nil, fmt.Errorf("column %s not found", set.Column)
+						}
+
+						// Evaluate the value expression
+						value, err := evaluateExpression(set.Value, chunk, row)
+						if err != nil {
+							return nil, err
+						}
+
+						updatedRow[colIdx] = value
+					}
+					
+					updatedRows = append(updatedRows, updatedRow)
+					updatedRowIndices = append(updatedRowIndices, totalRowIndex)
+				}
+				totalRowIndex++
 			}
 		}
-	}
 
-	// Return result with row count
-	return &QueryResult{
-		chunks:       []*storage.DataChunk{},
-		columns:      []Column{},
-		rowsAffected: int64(updatedRows),
-	}, nil
+		// Store updates in transaction write set
+		if len(updatedRows) > 0 {
+			entry := e.connection.txn.getOrCreateWriteSetEntry(plan.Table.GetName())
+			if entry.pendingUpdates == nil {
+				entry.pendingUpdates = make(map[int]map[int]interface{})
+			}
+			
+			// Store complete updated rows indexed by their row position
+			for i, rowIdx := range updatedRowIndices {
+				rowData := make(map[int]interface{})
+				for colIdx, val := range updatedRows[i] {
+					rowData[colIdx] = val
+				}
+				entry.pendingUpdates[rowIdx] = rowData
+			}
+			// Debug: Let's log what we're storing
+			// fmt.Printf("DEBUG: Stored %d updates for table %s\n", len(updatedRows), plan.Table.GetName())
+		}
+
+		// Return result with row count
+		return &QueryResult{
+			chunks:       []*storage.DataChunk{},
+			columns:      []Column{},
+			rowsAffected: int64(len(updatedRows)),
+		}, nil
+	} else {
+		// No transaction, apply updates directly
+		// Get all data chunks
+		chunks, err := plan.Table.Scan()
+		if err != nil {
+			return nil, fmt.Errorf("scan failed: %w", err)
+		}
+
+		// Get column definitions
+		columnDefs := plan.Table.GetColumns()
+		columnMap := make(map[string]int)
+		for i, col := range columnDefs {
+			columnMap[col.Name] = i
+		}
+
+		// Count updated rows
+		updatedRows := 0
+
+		// Process each chunk
+		for _, chunk := range chunks {
+			for row := 0; row < chunk.Size(); row++ {
+				// Evaluate WHERE clause if present
+				shouldUpdate := true
+				if plan.Where != nil {
+					match, err := evaluateWhereClause(plan.Where, chunk, row, columnDefs)
+					if err != nil {
+						return nil, fmt.Errorf("WHERE clause error at row %d: %w", row, err)
+					}
+					shouldUpdate = match
+				}
+
+				if shouldUpdate {
+					// Apply SET clauses
+					for _, set := range plan.Sets {
+						colIdx, exists := columnMap[set.Column]
+						if !exists {
+							return nil, fmt.Errorf("column %s not found", set.Column)
+						}
+
+						// Evaluate the value expression
+						value, err := evaluateExpression(set.Value, chunk, row)
+						if err != nil {
+							return nil, err
+						}
+
+						// Update the value
+						if err := chunk.SetValue(colIdx, row, value); err != nil {
+							return nil, err
+						}
+					}
+
+					updatedRows++
+				}
+			}
+		}
+
+		// Return result with row count
+		return &QueryResult{
+			chunks:       []*storage.DataChunk{},
+			columns:      []Column{},
+			rowsAffected: int64(updatedRows),
+		}, nil
+	}
 }
 
 // executeDelete executes a delete operation
